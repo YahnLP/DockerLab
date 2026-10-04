@@ -124,7 +124,6 @@ CMDS.docker = {
     if (rest.includes('--help') && SUB[name]) { st.out('\nUsage:  docker ' + name + ' [OPTIONS]\n\nRun \'docker --help\' for the list of options. (aide détaillée non simulée)\n'); return st.done(0); }
     const fn = SUB[name] || (name === 'ls' ? null : null);
     if (name === 'builder') { st.err('[Docker Lab] « docker ' + name + ' » sera disponible dans une prochaine phase du simulateur (Dockerfile et build).\n'); return st.done(1); }
-    if (name === 'compose' || name === 'docker-compose') { st.err('[Docker Lab] « docker compose » sera disponible dans une prochaine phase du simulateur.\n'); return st.done(1); }
     if (name === 'login' || name === 'logout' || name === 'push' || name === 'search') { st.err('[Docker Lab] « docker ' + name + ' » n\'est pas simulé (le registre est fictif et en lecture seule).\n'); return st.done(1); }
     if (!fn) { st.err('docker: \'' + name + '\' is not a docker command.\nSee \'docker --help\'\n'); return st.done(1); }
     st.lab.lastWhy = null; st.lab.lastCmd = 'docker ' + args.join(' ');

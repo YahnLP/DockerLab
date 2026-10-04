@@ -969,7 +969,7 @@ class Lab {
     const env = (cfg.env || []).slice(); (o.env || []).forEach(e => { const k = e.split('=')[0]; const hasEq = e.indexOf('=') >= 0; const i = env.findIndex(x => x.split('=')[0] === k); const val = hasEq ? e : (o.hostEnv && o.hostEnv[k] !== undefined ? k + '=' + o.hostEnv[k] : null); if (val === null) return; if (i >= 0) env[i] = val; else env.push(val); });
     const hostname = o.hostname || id.slice(0, 12);
     env.push('HOSTNAME=' + hostname);
-    const config = { entrypoint: o.entrypoint !== undefined && o.entrypoint !== null ? o.entrypoint : cfg.entrypoint, cmd: o.cmd && o.cmd.length ? o.cmd : (o.entrypoint !== undefined && o.entrypoint !== null ? [] : cfg.cmd), env, exposed: cfg.exposed, workdir: o.workdir || cfg.workdir || '', user: o.user || '', tty: !!o.tty, openStdin: !!o.openStdin, hostname, labels: o.labels || {}, stopSignal: cfg.stopSignal, imageCmd: cfg.cmd, volumes: cfg.volumes };
+    const config = { entrypoint: o.entrypoint !== undefined && o.entrypoint !== null ? o.entrypoint : cfg.entrypoint, cmd: o.cmd && o.cmd.length ? o.cmd : (o.entrypoint !== undefined && o.entrypoint !== null ? [] : cfg.cmd), env, exposed: cfg.exposed, workdir: o.workdir || cfg.workdir || '', user: o.user || '', tty: !!o.tty, openStdin: !!o.openStdin, hostname, labels: Object.assign({}, cfg.labels || {}, o.labels || {}), health: o.health || null, stopSignal: cfg.stopSignal, imageCmd: cfg.cmd, volumes: cfg.volumes };
     if (o.entrypoint !== undefined && o.entrypoint !== null && !(o.cmd && o.cmd.length)) config.cmd = [];
     const ports = (o.ports || []).slice();
     const c = new Container(this, {
@@ -1050,6 +1050,24 @@ class Lab {
     this.emit('container', 'start', c.id, { image: c.imageRef, name: c.name });
     if (c.state.restarting) { c.state.restarting = false; }
     this._launch(c, eff, beh, isSvc);
+    if (c.config.health && c.config.health.test && c.config.health.test.length) this._health(c);
+    else c.state.health = null;
+  }
+  /* sonde de santé : exécute périodiquement la commande dans le conteneur */
+  _health(c) {
+    const h = c.config.health; c.state.health = { status: 'starting', fails: 0, log: [] };
+    const t = h.test; const line = t[0] === 'CMD-SHELL' ? t.slice(1).join(' ') : t[0] === 'CMD' ? t.slice(1).map(x => /^[\w@%+=:,./-]+$/.test(x) ? x : "'" + x.replace(/'/g, "'\\''") + "'").join(' ') : t.join(' ');
+    const probe = () => {
+      let out = ''; const ctx = NS.containerCtx(this, c, { tty: false, shname: 'sh' }); const sh = new NS.Shell(this, ctx);
+      sh.run(line, { out: x => { out += x; }, err: x => { out += x; }, done: code => {
+        if (c.state.status !== 'running' || !c.state.health) return;
+        const hs = c.state.health; hs.log.push({ code, out: out.slice(0, 200), at: this.clock.now }); if (hs.log.length > 5) hs.log.shift();
+        if (code === 0) { hs.fails = 0; hs.status = 'healthy'; } else if (this.clock.now - c.state.startedAt >= (h.startPeriod || 0) && ++hs.fails >= (h.retries || 3)) hs.status = 'unhealthy';
+        this.emit('container', 'health_status: ' + hs.status, c.id, { name: c.name }); this.changed();
+        this._sched(c, h.interval || 30000, probe);
+      } });
+    };
+    this._sched(c, h.interval || 30000, probe);
   }
   _etcFiles(c) {
     const ip = c.primaryIp() || '127.0.0.1';
@@ -1149,7 +1167,7 @@ class Lab {
   statusText(c) {
     const s = c.state; const now = this.clock.now;
     if (s.status === 'created') return 'Created';
-    if (s.status === 'running') return 'Up ' + U.humanDuration(now - s.startedAt).replace('Less than a second', 'Less than a second');
+    if (s.status === 'running') return 'Up ' + U.humanDuration(now - s.startedAt) + (s.health ? (s.health.status === 'healthy' ? ' (healthy)' : s.health.status === 'unhealthy' ? ' (unhealthy)' : ' (health: starting)') : '');
     if (s.status === 'paused') return 'Up ' + U.humanDuration(now - s.startedAt) + ' (Paused)';
     if (s.status === 'restarting') return 'Restarting (' + s.exitCode + ') ' + U.humanDuration(now - s.finishedAt) + ' ago';
     return 'Exited (' + s.exitCode + ') ' + U.humanDuration(now - (s.finishedAt === null ? s.startedAt : s.finishedAt)) + ' ago';
@@ -1176,7 +1194,7 @@ class Lab {
     const eff = c.config.entrypoint.concat(c.config.cmd);
     return {
       Id: c.id, Created: U.iso(this.epoch + c.created), Path: eff[0] || '', Args: eff.slice(1),
-      State: { Status: c.state.status, Running: c.state.status === 'running' || c.state.status === 'paused', Paused: c.state.status === 'paused', Restarting: c.state.status === 'restarting', OOMKilled: false, Dead: false, Pid: c.state.pid, ExitCode: c.state.exitCode, Error: c.state.error || '', StartedAt: c.state.startedAt === null ? '0001-01-01T00:00:00Z' : U.iso(this.epoch + c.state.startedAt), FinishedAt: c.state.finishedAt === null ? '0001-01-01T00:00:00Z' : U.iso(this.epoch + c.state.finishedAt) },
+      State: { Status: c.state.status, Running: c.state.status === 'running' || c.state.status === 'paused', Paused: c.state.status === 'paused', Restarting: c.state.status === 'restarting', OOMKilled: false, Dead: false, Pid: c.state.pid, ExitCode: c.state.exitCode, Error: c.state.error || '', StartedAt: c.state.startedAt === null ? '0001-01-01T00:00:00Z' : U.iso(this.epoch + c.state.startedAt), FinishedAt: c.state.finishedAt === null ? '0001-01-01T00:00:00Z' : U.iso(this.epoch + c.state.finishedAt), ...(c.state.health ? { Health: { Status: c.state.health.status, FailingStreak: c.state.health.fails, Log: c.state.health.log.map(l => ({ ExitCode: l.code, Output: l.out })) } } : {}) },
       Image: 'sha256:' + c.imageId, ResolvConfPath: '/var/lib/docker/containers/' + c.id + '/resolv.conf', HostnamePath: '/var/lib/docker/containers/' + c.id + '/hostname', HostsPath: '/var/lib/docker/containers/' + c.id + '/hosts', LogPath: '/var/lib/docker/containers/' + c.id + '/' + c.id + '-json.log',
       Name: '/' + c.name, RestartCount: c.state.restartCount, Driver: 'overlay2', Platform: 'linux', MountLabel: '', ProcessLabel: '', AppArmorProfile: 'docker-default', ExecIDs: null,
       HostConfig: { Binds: c.mounts.filter(m => m.type === 'bind').map(m => m.source + ':' + m.destination + (m.rw ? '' : ':ro')).concat(c.mounts.filter(m => m.type === 'volume' && !this.getVolume(m.name).anonymous).map(m => m.name + ':' + m.destination + (m.rw ? '' : ':ro'))), ContainerIDFile: '', LogConfig: { Type: 'json-file', Config: {} }, NetworkMode: c.host.network === 'bridge' ? 'default' : c.host.network, PortBindings: pb, RestartPolicy: { Name: c.host.restart.name, MaximumRetryCount: c.host.restart.max || 0 }, AutoRemove: c.host.autoRemove, Privileged: false, PublishAllPorts: c.host.publishAll, ReadonlyRootfs: false },
@@ -2397,7 +2415,6 @@ CMDS.docker = {
     if (rest.includes('--help') && SUB[name]) { st.out('\nUsage:  docker ' + name + ' [OPTIONS]\n\nRun \'docker --help\' for the list of options. (aide détaillée non simulée)\n'); return st.done(0); }
     const fn = SUB[name] || (name === 'ls' ? null : null);
     if (name === 'builder') { st.err('[Docker Lab] « docker ' + name + ' » sera disponible dans une prochaine phase du simulateur (Dockerfile et build).\n'); return st.done(1); }
-    if (name === 'compose' || name === 'docker-compose') { st.err('[Docker Lab] « docker compose » sera disponible dans une prochaine phase du simulateur.\n'); return st.done(1); }
     if (name === 'login' || name === 'logout' || name === 'push' || name === 'search') { st.err('[Docker Lab] « docker ' + name + ' » n\'est pas simulé (le registre est fictif et en lecture seule).\n'); return st.done(1); }
     if (!fn) { st.err('docker: \'' + name + '\' is not a docker command.\nSee \'docker --help\'\n'); return st.done(1); }
     st.lab.lastWhy = null; st.lab.lastCmd = 'docker ' + args.join(' ');
@@ -2708,6 +2725,7 @@ SUB.build = function (args, st) {
     st.err((prog === 'plain' ? renderPlain(res) : renderTty(res, f, false))); st.done(0);
   });
 };
+NS.buildRender = { renderTty, renderPlain, errorBlock };
 NS.dockerSub.buildx = (a, st) => { if (a[0] === 'build') return SUB.build(a.slice(1), st); st.err('[Docker Lab] seul « docker buildx build » est simulé.\n'); st.done(1); };
 NS.dockerImageSub = NS.dockerImageSub || null;
 
@@ -2741,6 +2759,572 @@ SUB.commit = function (args, st) {
   if (rest[1]) { if (!lab.validRef(rest[1])) { st.err('Error response from daemon: invalid reference format\n'); return st.done(1); } const p = lab.parseRef(rest[1]); lab.images.forEach(i => { i.refs = i.refs.filter(x => !(x.repo === p.repo && x.tag === p.tag)); }); img.refs.push({ repo: p.repo, tag: p.tag }); }
   lab.emit('container', 'commit', c.id, { name: c.name }); st.out('sha256:' + id + '\n'); st.done(0);
 };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* yaml.js — sous-ensemble de YAML suffisant pour les fichiers Compose : maps, listes, scalaires, guillemets, [..] et {..}, | et >, commentaires. */
+(function (g) {
+'use strict';
+const NS = g.NS = g.NS || {};
+
+class YamlError extends Error { constructor(line, msg) { super('yaml: line ' + line + ': ' + msg); this.line = line; } }
+
+function stripComment(s) { let q = null; for (let i = 0; i < s.length; i++) { const c = s[i]; if (q) { if (c === q) q = null; else if (c === '\\' && q === '"') i++; } else if (c === '"' || c === "'") { if (i === 0 || /[\s:\[,{-]/.test(s[i - 1])) q = c; } else if (c === '#' && (i === 0 || /\s/.test(s[i - 1]))) return s.slice(0, i); } return s; }
+function splitFlow(s) { const out = []; let d = 0, q = null, cur = ''; for (const c of s) { if (q) { cur += c; if (c === q) q = null; continue; } if (c === '"' || c === "'") { q = c; cur += c; continue; } if (c === '[' || c === '{') d++; if (c === ']' || c === '}') d--; if (c === ',' && d === 0) { out.push(cur); cur = ''; } else cur += c; } if (cur.trim()) out.push(cur); return out; }
+function scalar(s, ln) {
+  s = s.trim();
+  if (s === '' || s === '~' || s === 'null') return null;
+  if (s[0] === '"') { if (s.length < 2 || s[s.length - 1] !== '"') throw new YamlError(ln, 'found unexpected end of stream while scanning a quoted scalar'); return s.slice(1, -1).replace(/\\(["\\nt])/g, (m, c) => c === 'n' ? '\n' : c === 't' ? '\t' : c); }
+  if (s[0] === "'") { if (s.length < 2 || s[s.length - 1] !== "'") throw new YamlError(ln, 'found unexpected end of stream while scanning a quoted scalar'); return s.slice(1, -1).replace(/''/g, "'"); }
+  if (s[0] === '[') { if (s[s.length - 1] !== ']') throw new YamlError(ln, 'did not find expected \',\' or \']\''); return splitFlow(s.slice(1, -1)).map(x => scalar(x, ln)); }
+  if (s[0] === '{') { if (s[s.length - 1] !== '}') throw new YamlError(ln, 'did not find expected \',\' or \'}\''); const o = {}; splitFlow(s.slice(1, -1)).forEach(kv => { const i = kv.indexOf(':'); if (i < 0) throw new YamlError(ln, 'did not find expected \',\' or \'}\''); o[scalar(kv.slice(0, i), ln)] = scalar(kv.slice(i + 1), ln); }); return o; }
+  if (/^(true|True|TRUE)$/.test(s)) return true; if (/^(false|False|FALSE)$/.test(s)) return false;
+  if (/^-?\d+$/.test(s) && s.length < 16) return Number(s); if (/^-?\d+\.\d+$/.test(s)) return Number(s);
+  return s;
+}
+function keySplit(t) { /* "clé: valeur" → [clé, reste] ou null */ let q = null; for (let i = 0; i < t.length; i++) { const c = t[i]; if (q) { if (c === q) q = null; continue; } if (c === '"' || c === "'") { q = c; continue; } if (c === ':' && (i === t.length - 1 || t[i + 1] === ' ')) return [t.slice(0, i).trim(), t.slice(i + 1).trim()]; } return null; }
+
+function parse(text) {
+  if (/^\t|\n\t/.test(text.replace(/\r/g, ''))) { const ln = text.replace(/\r/g, '').split('\n').findIndex(l => /^\t/.test(l)) + 1; throw new YamlError(ln, 'found character that cannot start any token'); }
+  const raw = text.replace(/\r/g, '').split('\n');
+  const L = []; raw.forEach((r, i) => { const t = stripComment(r).replace(/\s+$/, ''); if (/^\s*$/.test(t) || /^---\s*$/.test(t)) return; L.push({ ind: t.length - t.trimStart().length, t: t.trim(), n: i + 1, raw: r }); });
+  let pos = 0;
+  function block(ind) {
+    if (pos >= L.length) return null;
+    const first = L[pos]; if (first.t === '-' || first.t.startsWith('- ')) return list(first.ind); return map(first.ind);
+  }
+  function value(rest, ind, ln) {
+    if (rest === '|' || rest === '>' || /^[|>][+-]?$/.test(rest)) {
+      /* bloc littéral : lignes brutes plus indentées */
+      const startRaw = L[pos - 1].n; const lines = []; let bi = -1; let k = startRaw;
+      while (k < raw.length) { const r = raw[k]; if (/^\s*$/.test(r)) { lines.push(''); k++; continue; } const i2 = r.length - r.trimStart().length; if (i2 <= ind) break; if (bi < 0) bi = i2; lines.push(r.slice(Math.min(bi, i2))); k++; }
+      while (lines.length && lines[lines.length - 1] === '') lines.pop();
+      while (pos < L.length && L[pos].n <= k) pos++;
+      const body = rest[0] === '>' ? lines.join(' ').replace(/\s+\n/g, '\n') : lines.join('\n');
+      return rest.endsWith('-') ? body : body + '\n';
+    }
+    if (rest === '') { if (pos < L.length && (L[pos].ind > ind || (L[pos].ind === ind && (L[pos].t === '-' || L[pos].t.startsWith('- ')) && L[pos - 1] && !L[pos - 1].t.startsWith('- ')))) return block(L[pos].ind); return null; }
+    if (rest[0] === '&' || rest[0] === '*') throw new YamlError(ln, 'ancres et alias non gérés par Docker Lab');
+    return scalar(rest, ln);
+  }
+  function map(ind) {
+    const o = {};
+    while (pos < L.length) {
+      const l = L[pos]; if (l.ind < ind) break;
+      if (l.ind > ind) throw new YamlError(l.n, 'mapping values are not allowed in this context');
+      if (l.t === '-' || l.t.startsWith('- ')) break;
+      const kv = keySplit(l.t); if (!kv) throw new YamlError(l.n, 'could not find expected \':\'');
+      const key = String(scalar(kv[0], l.n)); if (key in o) throw new YamlError(l.n, 'mapping key "' + key + '" already defined at line ' + l.n);
+      pos++; o[key] = value(kv[1], ind, l.n);
+    }
+    return o;
+  }
+  function list(ind) {
+    const a = [];
+    while (pos < L.length) {
+      const l = L[pos]; if (l.ind !== ind || !(l.t === '-' || l.t.startsWith('- '))) { if (l.ind > ind) throw new YamlError(l.n, 'did not find expected \'-\' indicator'); break; }
+      const rest = l.t === '-' ? '' : l.t.slice(2).trim();
+      if (rest === '') { pos++; a.push(pos < L.length && L[pos].ind > ind ? block(L[pos].ind) : null); continue; }
+      const kv = rest[0] !== '"' && rest[0] !== "'" && rest[0] !== '[' && rest[0] !== '{' ? keySplit(rest) : null;
+      if (kv) { /* élément « - clé: valeur » : on réécrit la ligne comme un début de map plus indenté */ const off = l.t.length - rest.length; L[pos] = { ind: ind + off, t: rest, n: l.n, raw: l.raw }; a.push(map(ind + off)); }
+      else { pos++; a.push(scalar(rest, l.n)); }
+    }
+    return a;
+  }
+  if (!L.length) return null;
+  const r = block(L[0].ind);
+  if (pos < L.length) throw new YamlError(L[pos].n, 'did not find expected <document start>');
+  return r;
+}
+
+/* ---- sérialisation façon « docker compose config » */
+function dumpScalar(v) {
+  if (v === null || v === undefined) return 'null';
+  if (typeof v === 'boolean' || typeof v === 'number') return String(v);
+  const s = String(v);
+  if (s === '' || /^(true|false|null|yes|no|~)$/i.test(s) || /^-?\d+(\.\d+)?$/.test(s) || /^[\s\-?:,\[\]{}#&*!|>'"%@`]|[:#]\s|\s$|: /.test(s) || /:$/.test(s)) return JSON.stringify(s);
+  return s;
+}
+function dump(v, ind) {
+  ind = ind || 0; const pad = ' '.repeat(ind); let out = '';
+  if (Array.isArray(v)) {
+    v.forEach(x => {
+      if (x && typeof x === 'object' && !Array.isArray(x)) { const d = dump(x, ind + 2).split('\n'); out += pad + '- ' + d[0].trimStart() + '\n' + d.slice(1).filter((l, i, a) => i < a.length - 1 || l).join('\n') + (d.length > 1 ? '\n' : ''); }
+      else if (Array.isArray(x)) out += pad + '- ' + JSON.stringify(x) + '\n';
+      else out += pad + '- ' + dumpScalar(x) + '\n';
+    });
+    return out.replace(/\n\n+/g, '\n');
+  }
+  Object.keys(v).forEach(k => {
+    const x = v[k];
+    if (x && typeof x === 'object' && (Array.isArray(x) ? x.length : Object.keys(x).length)) out += pad + k + ':\n' + dump(x, ind + 2);
+    else if (Array.isArray(x)) out += pad + k + ': []\n';
+    else if (x && typeof x === 'object') out += pad + k + ': {}\n';
+    else out += pad + k + ': ' + dumpScalar(x) + '\n';
+  });
+  return out;
+}
+NS.yaml = { parse, dump, YamlError };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* compose.js — `docker compose` : lecture du fichier, projet, up / down / ps / logs / exec / run / build / config… */
+(function (g) {
+'use strict';
+const NS = g.NS = g.NS || {};
+const { U, DockerError } = NS; const SUB = NS.dockerSub; const parseFlags = NS.dockerParseFlags; const { dErr, why, eachSeq } = NS.dockerHelpers;
+const VERSION = 'v2.29.7';
+const FILES = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
+const SVC_KEYS = ['image', 'build', 'container_name', 'command', 'entrypoint', 'environment', 'env_file', 'ports', 'expose', 'volumes', 'networks', 'network_mode', 'depends_on', 'restart', 'working_dir', 'user', 'hostname', 'labels', 'healthcheck', 'profiles', 'deploy', 'scale', 'tty', 'stdin_open', 'init', 'stop_grace_period', 'stop_signal', 'platform', 'pull_policy', 'extra_hosts', 'cap_add', 'cap_drop', 'logging', 'dns', 'privileged', 'read_only', 'tmpfs', 'mem_limit', 'cpus', 'links'];
+class CErr extends Error { constructor(m) { super(m); } }
+
+/* ------------------------------------------------ interpolation ${VAR} */
+function interpolate(s, env, warn) {
+  return s.replace(/\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?])([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (m, n1, op, arg, n2) => {
+    if (m === '$$') return '$'; const n = n1 || n2; const v = env[n]; const set = v !== undefined && v !== '';
+    if (op === ':-') return set ? v : arg; if (op === '-') return v !== undefined ? v : arg;
+    if (op === ':?') { if (!set) throw new CErr('required variable ' + n + ' is missing a value: ' + arg); return v; }
+    if (op === '?') { if (v === undefined) throw new CErr('required variable ' + n + ' is missing a value: ' + arg); return v; }
+    if (v === undefined) { warn(n); return ''; } return v;
+  });
+}
+function interpAll(v, env, warn) { if (typeof v === 'string') return interpolate(v, env, warn); if (Array.isArray(v)) return v.map(x => interpAll(x, env, warn)); if (v && typeof v === 'object') { const o = {}; Object.keys(v).forEach(k => { o[k] = interpAll(v[k], env, warn); }); return o; } return v; }
+function parseEnvFile(text) { const o = {}; (text || '').split('\n').forEach(l => { l = l.trim(); if (!l || l[0] === '#') return; const i = l.indexOf('='); if (i < 0) return; let v = l.slice(i + 1).trim(); if (/^(".*"|'.*')$/.test(v)) v = v.slice(1, -1); o[l.slice(0, i).trim()] = v; }); return o; }
+function dur(s) { if (s === undefined || s === null) return undefined; if (typeof s === 'number') return s * 1000; let t = 0; String(s).replace(/(\d+(?:\.\d+)?)(ms|s|m|h)/g, (m, n, u) => { t += Number(n) * { ms: 1, s: 1000, m: 60000, h: 3600000 }[u]; }); return t; }
+const asMap = (v) => { if (!v) return {}; if (Array.isArray(v)) { const o = {}; v.forEach(x => { const s = String(x); const i = s.indexOf('='); if (i < 0) o[s] = null; else o[s.slice(0, i)] = s.slice(i + 1); }); return o; } return v; };
+
+/* ------------------------------------------------ chargement du projet */
+function findFile(st, opts) {
+  const fs = st.ctx.fs; const files = opts.files || [];
+  if (files.length) { const out = files.map(f => fs.norm(st.ctx.cwd, f)); for (let i = 0; i < out.length; i++) if (fs.read(out[i]) === null) throw new CErr('open ' + out[i] + ': no such file or directory'); return out; }
+  let d = st.ctx.cwd;
+  for (;;) { for (const n of FILES) { const p = (d === '/' ? '' : d) + '/' + n; if (fs.isFile(p)) return [p]; } if (d === '/') break; d = d.replace(/\/[^/]*$/, '') || '/'; }
+  return null;
+}
+function projName(raw) { return raw.toLowerCase().replace(/[^a-z0-9_-]/g, '').replace(/^[^a-z0-9]+/, ''); }
+function loadProject(st, opts) {
+  const lab = st.lab; const fs = st.ctx.fs; const warns = [];
+  const paths = findFile(st, opts);
+  if (!paths) { if (opts.project) return { name: opts.project, services: {}, order: [], nofile: true, networks: {}, volumes: {}, warns }; throw new CErr('no configuration file provided: not found'); }
+  const dir = paths[0].replace(/\/[^/]*$/, '') || '/';
+  /* variables : environnement du shell, puis .env (le shell est prioritaire) */
+  const envFile = opts.envFile ? fs.norm(st.ctx.cwd, opts.envFile) : dir + '/.env';
+  if (opts.envFile && fs.read(envFile) === null) throw new CErr('couldn\'t find env file: ' + envFile);
+  const env = Object.assign({}, parseEnvFile(fs.read(envFile)), st.ctx.env || {});
+  let doc = {};
+  for (const p of paths) {
+    let y; try { y = NS.yaml.parse(fs.read(p)); } catch (e) { if (e instanceof NS.yaml.YamlError) throw new CErr(e.message); throw e; }
+    if (y === null || typeof y !== 'object' || Array.isArray(y)) { if (y === null) throw new CErr('empty compose file'); throw new CErr('validating ' + p + ': (root) must be a mapping'); }
+    const known = ['name', 'services', 'networks', 'volumes', 'version', 'configs', 'secrets', 'include'];
+    for (const k of Object.keys(y)) if (!known.includes(k) && !k.startsWith('x-')) throw new CErr('validating ' + p + ': Additional property ' + k + ' is not allowed');
+    if ('version' in y) warns.push(p + ': the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion');
+    const seen = new Set(); const w = n => { if (!seen.has(n)) { seen.add(n); warns.push('The "' + n + '" variable is not set. Defaulting to a blank string.'); } };
+    let yi; try { yi = interpAll(y, env, w); } catch (e) { if (e instanceof CErr) throw e; throw e; }
+    ['services', 'networks', 'volumes'].forEach(k => { if (yi[k]) doc[k] = Object.assign(doc[k] || {}, yi[k]); }); if (yi.name) doc.name = yi.name; doc.file = p;
+    if (!yi.services || typeof yi.services !== 'object') { if (!doc.services) throw new CErr('validating ' + p + ': services is required'); }
+  }
+  const name = opts.project ? projName(opts.project) : doc.name ? projName(String(doc.name)) : projName(dir.split('/').pop());
+  if (!name) throw new CErr('project name must not be empty');
+  const P = { name, dir, files: paths, services: {}, order: [], networks: {}, volumes: {}, warns, env, rawNetworks: doc.networks || {}, rawVolumes: doc.volumes || {} };
+  /* réseaux et volumes déclarés */
+  Object.keys(P.rawNetworks).forEach(k => { const d = P.rawNetworks[k] || {}; const ext = d.external === true || (d.external && typeof d.external === 'object'); P.networks[k] = { key: k, name: d.name || (ext ? k : name + '_' + k), external: ext, driver: d.driver || 'bridge', internal: !!d.internal }; });
+  Object.keys(P.rawVolumes).forEach(k => { const d = P.rawVolumes[k] || {}; const ext = d.external === true || (d.external && typeof d.external === 'object'); P.volumes[k] = { key: k, name: d.name || (ext ? k : name + '_' + k), external: ext }; });
+  /* services */
+  const S = doc.services || {};
+  Object.keys(S).forEach(sn => {
+    const raw = S[sn]; if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new CErr('validating ' + doc.file + ': services.' + sn + ' must be a mapping');
+    for (const k of Object.keys(raw)) if (!SVC_KEYS.includes(k) && !k.startsWith('x-')) throw new CErr('validating ' + doc.file + ': services.' + sn + ' Additional property ' + k + ' is not allowed');
+    if (!raw.image && !raw.build) throw new CErr('service "' + sn + '" has neither an image nor a build context specified: invalid compose project');
+    const s = { name: sn, raw };
+    s.image = raw.image || null;
+    if (raw.build) { const b = typeof raw.build === 'string' ? { context: raw.build } : raw.build; const ctx = st.ctx.fs.norm(dir, b.context || '.'); s.build = { context: ctx, dockerfile: b.dockerfile || 'Dockerfile', args: asMap(b.args), target: b.target || null }; }
+    s.imageName = s.image || name + '-' + sn;
+    s.container_name = raw.container_name || null;
+    const cm = v => v === undefined || v === null ? null : Array.isArray(v) ? v.map(String) : (U.shellSplit(String(v)) || []);
+    s.command = cm(raw.command); s.entrypoint = cm(raw.entrypoint);
+    const envm = {}; let ef = raw.env_file; if (ef) { (Array.isArray(ef) ? ef : [ef]).forEach(f0 => { const f = typeof f0 === 'object' ? f0.path : f0; const p = st.ctx.fs.norm(dir, f); const t = st.ctx.fs.read(p); if (t === null) { if (typeof f0 === 'object' && f0.required === false) return; throw new CErr('env file ' + p + ' not found: stat ' + p + ': no such file or directory'); } Object.assign(envm, parseEnvFile(t)); }); }
+    Object.assign(envm, asMap(raw.environment)); s.environment = envm;
+    s.ports = (raw.ports || []).map(p => typeof p === 'object' ? ((p.published ? p.published + ':' : '') + p.target + (p.protocol && p.protocol !== 'tcp' ? '/' + p.protocol : '')) : String(p));
+    s.volumes = (raw.volumes || []).map(v => {
+      let m; if (typeof v === 'object') m = { type: v.type || 'volume', source: v.source, target: v.target, ro: !!v.read_only }; else { const parts = String(v).split(':'); if (parts.length === 1) m = { type: 'volume', source: null, target: parts[0] }; else m = { source: parts[0], target: parts[1], ro: (parts[2] || '').split(',').includes('ro') }; if (parts.length > 1) m.type = /^[./~]/.test(parts[0]) ? 'bind' : 'volume'; }
+      if (m.type === 'bind') m.source = m.source.startsWith('~') ? (st.ctx.env && st.ctx.env.HOME || '/home/student') + m.source.slice(1) : st.ctx.fs.norm(dir, m.source);
+      else if (m.source) { const d = P.volumes[m.source]; if (!d) throw new CErr('service "' + sn + '" refers to undefined volume ' + m.source + ': invalid compose project'); m.key = m.source; m.source = d.name; }
+      return m;
+    });
+    s.networkMode = raw.network_mode || null;
+    const nets = raw.networks; s.networks = {};
+    if (nets) { (Array.isArray(nets) ? nets.map(n => [n, null]) : Object.keys(nets).map(n => [n, nets[n]])).forEach(([n, d]) => { if (!P.networks[n] && n !== 'default') throw new CErr('service "' + sn + '" refers to undefined network ' + n + ': invalid compose project'); s.networks[n] = { aliases: (d && d.aliases) || [] }; }); }
+    else if (!s.networkMode) s.networks.default = { aliases: [] };
+    const dep = raw.depends_on; s.depends = {}; if (dep) { if (Array.isArray(dep)) dep.forEach(d => { s.depends[d] = 'service_started'; }); else Object.keys(dep).forEach(d => { s.depends[d] = (dep[d] && dep[d].condition) || 'service_started'; }); }
+    const rp = String(raw.restart || 'no').split(':'); if (!['no', 'always', 'unless-stopped', 'on-failure'].includes(rp[0])) throw new CErr('validating ' + doc.file + ': services.' + sn + '.restart must be one of "no", "always", "on-failure", "unless-stopped"');
+    s.restart = { name: rp[0], max: Number(rp[1] || 0) };
+    s.workdir = raw.working_dir || ''; s.user = raw.user ? String(raw.user) : ''; s.hostname = raw.hostname || '';
+    s.labels = asMap(raw.labels); s.profiles = raw.profiles || [];
+    s.tty = !!raw.tty; s.stdin_open = !!raw.stdin_open; s.stopGrace = raw.stop_grace_period ? dur(raw.stop_grace_period) : 10000;
+    s.scale = raw.scale !== undefined ? Number(raw.scale) : (raw.deploy && raw.deploy.replicas !== undefined ? Number(raw.deploy.replicas) : 1);
+    const hc = raw.healthcheck; if (hc && !hc.disable) { let t = hc.test; if (typeof t === 'string') t = ['CMD-SHELL', t]; s.health = t && t[0] !== 'NONE' ? { test: t, interval: dur(hc.interval) || 30000, timeout: dur(hc.timeout) || 30000, retries: hc.retries === undefined ? 3 : hc.retries, startPeriod: dur(hc.start_period) || 0 } : null; }
+    P.services[sn] = s;
+  });
+  /* dépendances : existence, cycles, ordre de démarrage */
+  Object.values(P.services).forEach(s => Object.keys(s.depends).forEach(d => { if (!P.services[d]) throw new CErr('service "' + s.name + '" depends on undefined service "' + d + '": invalid compose project'); }));
+  const state = {}; const order = [];
+  const visit = (n, path) => { if (state[n] === 2) return; if (state[n] === 1) { const i = path.indexOf(n); throw new CErr('dependency cycle detected: ' + path.slice(i).concat(n).join(' -> ')); } state[n] = 1; Object.keys(P.services[n].depends).forEach(d => visit(d, path.concat(n))); state[n] = 2; order.push(n); };
+  Object.keys(P.services).forEach(n => visit(n, []));
+  P.order = order;
+  /* réseau par défaut */
+  const usesDefault = Object.values(P.services).some(s => s.networks.default);
+  if (usesDefault && !P.networks.default) P.networks.default = { key: 'default', name: name + '_default', external: false, driver: 'bridge' };
+  /* services demandés (+ profils) */
+  P.profiles = opts.profiles || [];
+  P.active = n => { const s = P.services[n]; return !s.profiles.length || s.profiles.some(p => P.profiles.includes(p)); };
+  return P;
+}
+/* services visés + leurs dépendances, dans l'ordre */
+function selectServices(P, names, withDeps) {
+  for (const n of names) if (!P.services[n]) throw new CErr('no such service: ' + n);
+  const set = new Set(); const add = n => { if (set.has(n)) return; set.add(n); if (withDeps) Object.keys(P.services[n].depends).forEach(add); };
+  if (names.length) names.forEach(add); else P.order.filter(P.active).forEach(add);
+  return P.order.filter(n => set.has(n));
+}
+
+/* ------------------------------------------------ conteneurs du projet */
+const lbl = c => c.config.labels || {};
+const projCtrs = (lab, P, oneoff) => lab.containers.filter(c => lbl(c)['com.docker.compose.project'] === P.name && (oneoff || lbl(c)['com.docker.compose.oneoff'] !== 'True'));
+const svcCtrs = (lab, P, sn) => projCtrs(lab, P).filter(c => lbl(c)['com.docker.compose.service'] === sn).sort((a, b) => Number(lbl(a)['com.docker.compose.container-number']) - Number(lbl(b)['com.docker.compose.container-number']));
+function sortCtrs(P, list) { const idx = n => { const i = P.order ? P.order.indexOf(n) : -1; return i < 0 ? 999 : i; }; return list.slice().sort((a, b) => idx(lbl(a)['com.docker.compose.service']) - idx(lbl(b)['com.docker.compose.service']) || Number(lbl(a)['com.docker.compose.container-number']) - Number(lbl(b)['com.docker.compose.container-number'])); }
+const cname = (P, s, n) => s.container_name || P.name + '-' + s.name + '-' + n;
+const secs = ms => (ms / 1000).toFixed(1) + 's';
+function configHash(P, s, imageId) { return U.hexOf(JSON.stringify([s.image, s.build, s.command, s.entrypoint, s.environment, s.ports, s.volumes, s.networks, s.networkMode, s.restart, s.workdir, s.user, s.hostname, s.labels, s.health, imageId]), 64); }
+
+/* affichage « [+] Running n/n » */
+function frame(title, rows, total) {
+  if (!rows.length) return '';
+  const w = Math.max.apply(null, rows.map(r => r.name.length)), sw = Math.max.apply(null, rows.map(r => r.status.length));
+  const ok = rows.filter(r => !r.err).length;
+  return '[+] ' + title + ' ' + ok + '/' + (total || rows.length) + '\n' + rows.map(r => ' ' + (r.err ? '✘' : '✔') + ' ' + r.name.padEnd(w) + '  ' + r.status.padEnd(sw) + '  ' + r.t.padStart(5)).join('\n') + '\n';
+}
+const WHY = {
+  up: ['docker compose up lit le fichier compose.yaml et met en place TOUT le projet : réseau(x), volume(s), puis un conteneur par service, dans l\'ordre imposé par depends_on.', 'Les noms sont préfixés par le nom du projet (par défaut : le nom du dossier) : réseau « projet_default », conteneurs « projet-service-1 ».', 'Avec -d, le terminal est rendu ; sans -d, il affiche les journaux de tous les services jusqu\'à Ctrl+C (qui les arrête).', 'Si rien n\'a changé dans la configuration, les conteneurs existants sont conservés (« Running ») ; sinon le service est recréé (« Recreated »).'],
+  down: ['docker compose down arrête puis SUPPRIME les conteneurs du projet et les réseaux créés par up.', 'Les volumes nommés sont CONSERVÉS (vos données sont sauves) ; ajoutez -v pour les supprimer aussi.'],
+  ps: ['Liste les conteneurs de ce projet seulement (docker ps montrerait tous ceux de l\'hôte). Ajoutez -a pour inclure ceux qui sont arrêtés.'],
+  logs: ['Affiche les journaux de tous les services du projet, chaque ligne étant préfixée par le nom du conteneur. Avec -f, suit en direct (Ctrl+C pour quitter).'],
+  config: ['Affiche le fichier Compose tel que Docker le comprend : variables ${…} remplacées, valeurs par défaut ajoutées, notations courtes développées. Idéal pour vérifier un fichier avant up.'],
+};
+
+/* ------------------------------------------------ images (pull / build) */
+function ensureImage(st, P, s, opts, rows, cb) {
+  const lab = st.lab; const t0 = lab.clock.now;
+  const needBuild = s.build && (opts.build || !lab.findImage(s.imageName));
+  if (needBuild && !opts.noBuild) {
+    let text = lab.hostFs.read(s.build.context + '/' + s.build.dockerfile);
+    if (text === null) return cb(new CErr('failed to solve: failed to read dockerfile: open ' + s.build.dockerfile + ': no such file or directory'));
+    const tag = s.imageName.includes(':') ? s.imageName : s.imageName + ':latest';
+    return NS.buildImage(lab, { text, ctxDir: s.build.context, tags: [tag], args: s.build.args, noCache: !!opts.noCache, target: s.build.target, file: s.build.dockerfile }, (e, res) => {
+      lab.lastBuild = { steps: res.steps, ok: !e, ms: res.ms };
+      st.err(NS.buildRender.renderTty(res, {}, !!e) + (e ? NS.buildRender.errorBlock(res, e, text, s.build.dockerfile) : ''));
+      if (e) return cb(new CErr('failed to solve: ' + e.msg, true)); rows.push({ name: 'Image ' + s.imageName, status: 'Built', t: secs(lab.clock.now - t0) }); cb(null, lab.findImage(s.imageName));
+    });
+  }
+  const img = lab.findImage(s.imageName); if (img) return cb(null, img);
+  if (!s.image) return cb(new CErr('pull access denied for ' + s.imageName + ', repository does not exist or may require \'docker login\''));
+  lab.pull(s.image, () => { }, (e, r) => { if (e) return cb(new CErr(e.message)); rows.push({ name: 'Image ' + s.image, status: 'Pulled', t: secs(lab.clock.now - t0) }); cb(null, r.image); }, { noDefault: false });
+}
+
+/* ------------------------------------------------ up */
+function ensureNets(st, P, rows) {
+  const lab = st.lab;
+  Object.values(P.networks).forEach(n => {
+    if (n.external) { if (!lab.getNetwork(n.name)) throw new CErr('network ' + n.name + ' declared as external, but could not be found'); return; }
+    if (lab.getNetwork(n.name)) return;
+    if (!Object.values(P.services).some(s => s.networks[n.key])) return;
+    lab.createNetwork(n.name, { labels: { 'com.docker.compose.network': n.key, 'com.docker.compose.project': P.name }, internal: n.internal }); rows.push({ name: 'Network ' + n.name, status: 'Created', t: '0.1s' });
+  });
+  Object.values(P.volumes).forEach(v => {
+    if (v.external) { if (!lab.getVolume(v.name)) throw new CErr('external volume "' + v.name + '" not found'); return; }
+    if (lab.getVolume(v.name)) return;
+    if (!Object.values(P.services).some(s => s.volumes.some(m => m.key === v.key))) return;
+    lab.createVolume(v.name, { labels: { 'com.docker.compose.volume': v.key, 'com.docker.compose.project': P.name } }); rows.push({ name: 'Volume ' + v.name, status: 'Created', t: '0.0s' });
+  });
+}
+function createFor(st, P, s, n, img, hash) {
+  const lab = st.lab;
+  const labels = Object.assign({}, s.labels, { 'com.docker.compose.project': P.name, 'com.docker.compose.service': s.name, 'com.docker.compose.container-number': String(n), 'com.docker.compose.oneoff': 'False', 'com.docker.compose.config-hash': hash, 'com.docker.compose.version': VERSION.slice(1), 'com.docker.compose.project.config_files': P.files.join(','), 'com.docker.compose.project.working_dir': P.dir });
+  const names = Object.keys(s.networks).map(k => P.networks[k]).filter(Boolean);
+  const o = { image: s.imageName, imageObj: img, name: cname(P, s, n), cmd: s.command || [], env: Object.keys(s.environment).map(k => s.environment[k] === null ? k : k + '=' + s.environment[k]), hostEnv: P.env, tty: s.tty, openStdin: s.stdin_open, workdir: s.workdir, user: s.user, hostname: s.hostname || undefined, ports: s.ports.map(p => lab.parsePort(p)), mounts: s.volumes.map(m => ({ type: m.type, source: m.source, target: m.target, ro: !!m.ro, anonymous: m.type === 'volume' && !m.source })), restart: s.restart, labels, health: s.health, network: s.networkMode || (names[0] ? names[0].name : 'bridge'), aliases: names[0] ? [s.name].concat(s.networks[names[0].key].aliases) : [] };
+  if (s.entrypoint) o.entrypoint = s.entrypoint.length ? s.entrypoint : '';
+  if (s.entrypoint && !s.entrypoint.length) o.entrypoint = [];
+  const c = lab.createContainer(o);
+  names.slice(1).forEach(nn => lab.connectNetwork(nn.name, c, [s.name].concat(s.networks[nn.key].aliases)));
+  return c;
+}
+function waitDeps(st, P, s, rows, cb) {
+  const lab = st.lab; const deps = Object.keys(s.depends);
+  eachSeq(deps, (d, next) => {
+    const cond = s.depends[d]; const cs = svcCtrs(lab, P, d); const t0 = lab.clock.now;
+    if (cond === 'service_started' || !cs.length) return next();
+    let tries = 0;
+    const poll = () => {
+      for (const c of cs) {
+        if (cond === 'service_healthy') {
+          if (!c.config.health) return cb(new CErr('dependency failed to start: container ' + c.name + ' has no healthcheck configured'));
+          if (!c.running) return cb(new CErr('dependency failed to start: container ' + c.name + ' exited (' + c.state.exitCode + ')'));
+          const h = c.state.health && c.state.health.status; if (h === 'unhealthy') return cb(new CErr('dependency failed to start: container ' + c.name + ' is unhealthy'));
+          if (h !== 'healthy') { if (++tries > 4000) return cb(new CErr('timeout waiting for ' + c.name)); return lab.wait(500, poll); }
+        } else if (cond === 'service_completed_successfully') {
+          if (c.running || c.state.status === 'created') { if (++tries > 4000) return cb(new CErr('timeout')); return lab.wait(500, poll); }
+          if (c.state.exitCode !== 0) return cb(new CErr('dependency failed to start: container ' + c.name + ' exited (' + c.state.exitCode + ')'));
+        }
+      }
+      cs.forEach(c => { const r = rows.find(x => x.name === 'Container ' + c.name); const lab2 = cond === 'service_healthy' ? 'Healthy' : 'Exited'; if (r) { r.status = lab2; r.t = secs(lab.clock.now - t0 + 100); } });
+      next();
+    };
+    poll();
+  }, () => cb(null));
+}
+function upServices(st, P, names, o, done) {
+  const lab = st.lab; const rows = []; const t0 = lab.clock.now; const started = [];
+  try { ensureNets(st, P, rows); } catch (e) { return done(e, rows); }
+  const sel = selectServices(P, names, true);
+  const imgRows = [];
+  let failed = null; const bad = new Set();
+  eachSeq(sel, (sn, nextSvc) => {
+    const s = P.services[sn]; const fail = e => { if (!failed) failed = e; bad.add(sn); };
+    if (Object.keys(s.depends).some(d => bad.has(d))) { bad.add(sn); return nextSvc(); }
+    ensureImage(st, P, s, o, imgRows, (e, img) => {
+      if (e) { fail(e); return nextSvc(); }
+      const want = o.scale && o.scale[sn] !== undefined ? o.scale[sn] : s.scale;
+      const hash = configHash(P, s, img.id);
+      waitDeps(st, P, s, rows, e2 => {
+        if (e2) { fail(e2); return nextSvc(); }
+        const have = svcCtrs(lab, P, sn); const nums = [];
+        for (let i = 1; i <= want; i++) nums.push(i);
+        /* surplus à retirer */
+        have.filter(c => Number(lbl(c)['com.docker.compose.container-number']) > want).forEach(c => { try { lab.removeContainer(c, { force: true }); } catch (e3) { } rows.push({ name: 'Container ' + c.name, status: 'Removed', t: '0.1s' }); });
+        eachSeq(nums, (n, nextN) => {
+          const ex = have.find(c => Number(lbl(c)['com.docker.compose.container-number']) === n); const tt = lab.clock.now;
+          const row = (status, name) => rows.push({ name: 'Container ' + name, status, t: secs(lab.clock.now - tt) });
+          const doStart = (c, status) => { try { lab.start(c); } catch (e4) { rows.push({ name: 'Container ' + c.name, status: 'Error', t: secs(lab.clock.now - tt), err: true }); fail(new DockerError(e4.message)); return nextN(); } lab.wait(250, () => { row(status, c.name); started.push(c); nextN(); }); };
+          if (ex && !o.forceRecreate && lbl(ex)['com.docker.compose.config-hash'] === hash) { if (ex.running) { row('Running', ex.name); started.push(ex); return nextN(); } return doStart(ex, 'Started'); }
+          const make = (status) => { let c; try { c = createFor(st, P, s, n, img, hash); } catch (e5) { fail(e5); return nextN(); } lab.wait(150, () => doStart(c, status)); };
+          if (ex) { return lab.stop(ex, Math.round(s.stopGrace / 1000), () => { try { lab.removeContainer(ex, { force: true }); } catch (e6) { } make('Started'); }); }
+          make('Started');
+        }, nextSvc);
+      });
+    });
+  }, () => {
+    const all = imgRows.concat(rows); const fr = frame('Running', all, all.length);
+    done(failed, all, started, fr);
+  });
+}
+function failText(e) { return (e instanceof CErr ? '' : 'Error response from daemon: ') + e.message + '\n'; }
+SUB.compose = function (args, st) {
+  const lab = st.lab;
+  /* options globales : -f, -p, --env-file, --profile, --project-directory */
+  const opts = { files: [], profiles: [] }; let i = 0;
+  for (; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-f' || a === '--file') opts.files.push(args[++i]); else if (a.startsWith('--file=')) opts.files.push(a.slice(7));
+    else if (a === '-p' || a === '--project-name') opts.project = args[++i]; else if (a.startsWith('--project-name=')) opts.project = a.slice(15);
+    else if (a === '--env-file') opts.envFile = args[++i]; else if (a === '--profile') opts.profiles.push(args[++i]); else if (a === '--ansi' || a === '--progress' || a === '--project-directory' || a === '--parallel') i++;
+    else if (a === '--dry-run' || a === '--compatibility' || a.startsWith('--ansi=') || a.startsWith('--progress=')) { } else break;
+  }
+  const cmd = args[i]; const rest = args.slice(i + 1);
+  if (cmd === '--version' || cmd === 'version') { if (cmd === 'version' && rest.includes('--short')) st.out(VERSION.slice(1) + '\n'); else st.out('Docker Compose version ' + VERSION + '\n'); return st.done(0); }
+  if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { st.out('\nUsage:  docker compose [OPTIONS] COMMAND\n\nDefine and run multi-container applications with Docker.\n\nOptions:\n  -f, --file stringArray   Compose configuration files\n  -p, --project-name string   Project name\n\nCommands:\n  build       Build or rebuild services\n  config      Parse, resolve and render compose file in canonical format\n  down        Stop and remove containers, networks\n  exec        Execute a command in a running container\n  logs        View output from containers\n  ls          List running compose projects\n  port        Print the public port for a port binding\n  ps          List containers\n  pull        Pull service images\n  restart     Restart service containers\n  rm          Removes stopped service containers\n  run         Run a one-off command on a service\n  start       Start services\n  stop        Stop services\n  up          Create and start containers\n  version     Show the Docker Compose version information\n\nRun \'docker compose COMMAND --help\' for more information on a command.\n'); return st.done(0); }
+  const fn = CMD[cmd];
+  if (!fn) { st.err('docker: \'compose ' + cmd + '\' is not a docker command.\nSee \'docker --help\'\n'); return st.done(1); }
+  if (cmd === 'ls') return fn(rest, st, opts);
+  let P; try { P = loadProject(st, opts); } catch (e) { if (!(e instanceof CErr)) throw e; st.err(e.message + '\n'); return st.done(1); }
+  P.warns.forEach(w => st.err('WARN[0000] ' + w + '\n'));
+  lab.lastWhy = null; WHY[cmd] && (lab.lastWhy = { title: 'docker compose ' + cmd, lines: WHY[cmd] });
+  try { fn(rest, st, P, opts); } catch (e) { st.err(failText(e)); st.done(1); }
+};
+const CMD = {};
+CMD.up = function (args, st, P, g) {
+  const lab = st.lab;
+  const { f, rest, err } = parseFlags(args, ['detach|d:b', 'build:b', 'no-build:b', 'force-recreate:b', 'no-recreate:b', 'remove-orphans:b', 'scale:l', 'no-deps:b', 'abort-on-container-exit:b', 'wait:b', 'pull:s', 'quiet-pull:b', 'timeout|t:s', 'no-color:b', 'attach:l', 'renew-anon-volumes|V:b', 'no-start:b', 'always-recreate-deps:b', 'menu:s', 'watch|w:b', 'yes|y:b', 'exit-code-from:s', 'no-log-prefix:b', 'timestamps:b', 'no-attach:l', 'attach-dependencies:b'], false, 'compose up');
+  if (err) { st.err(err + '\n'); return st.done(1); }
+  const scale = {}; (f.scale || []).forEach(x => { const [k, v] = x.split('='); scale[k] = Number(v); });
+  const o = { build: !!f.build, noBuild: !!f['no-build'], forceRecreate: !!f['force-recreate'], scale };
+  upServices(st, P, rest, o, (e, rows, started, fr) => {
+    st.out(fr || frame('Running', rows));
+    if (e) { st.err(failText(e)); return st.done(1); }
+    if (f.detach || f.wait) return st.done(0);
+    foreground(st, P, started);
+  });
+};
+function foreground(st, P, ctrs) {
+  const lab = st.lab; const list = sortCtrs(P, ctrs); if (!list.length) return st.done(0);
+  const w = Math.max.apply(null, list.map(c => c.name.length));
+  st.out('Attaching to ' + list.map(c => c.name).join(', ') + '\n');
+  let alive = list.length; const subs = [];
+  const pre = c => c.name.padEnd(w) + '  | ';
+  list.forEach(c => {
+    c.logs.forEach(e => st.out(pre(c) + e.text + '\n'));
+    const sub = { log: e => st.out(pre(c) + e.text + '\n'), exit: code => { st.out(c.name + ' exited with code ' + code + '\n'); if (--alive <= 0) { st.done(0); } } };
+    c.subs.push(sub); subs.push([c, sub]);
+  });
+  st.onAbort(() => {
+    subs.forEach(([c, sub]) => { c.subs = c.subs.filter(x => x !== sub); });
+    st.out('\nGracefully stopping... (press Ctrl+C again to force)\n'); const rows = []; const t0 = lab.clock.now;
+    eachSeq(list.slice().reverse(), (c, next) => { if (!c.running) return next(); lab.stop(c, 10, () => { rows.push({ name: 'Container ' + c.name, status: 'Stopped', t: secs(lab.clock.now - t0) }); next(); }); }, () => { st.out(frame('Stopping', rows) + 'canceled\n'); st.done(130); });
+  });
+}
+CMD.down = function (args, st, P) {
+  const lab = st.lab; const { f, rest, err } = parseFlags(args, ['volumes|v:b', 'rmi:s', 'remove-orphans:b', 'timeout|t:s'], false, 'compose down');
+  if (err) { st.err(err + '\n'); return st.done(1); }
+  const rows = []; const t0 = lab.clock.now; const cs = sortCtrs(P, projCtrs(lab, P, true)).reverse();
+  eachSeq(cs, (c, next) => { const s = P.services[lbl(c)['com.docker.compose.service']]; lab.stop(c, f.timeout ? Number(f.timeout) : s ? Math.round(s.stopGrace / 1000) : 10, () => { try { lab.removeContainer(c, { force: true }); } catch (e) { } rows.push({ name: 'Container ' + c.name, status: 'Removed', t: secs(lab.clock.now - t0) }); next(); }); }, () => {
+    if (f.volumes) lab.volumes.filter(v => (v.labels || {})['com.docker.compose.project'] === P.name).forEach(v => { try { lab.removeVolume(v.name); rows.push({ name: 'Volume ' + v.name, status: 'Removed', t: '0.0s' }); } catch (e) { } });
+    if (f.rmi) Object.values(P.services).forEach(s => { if (f.rmi === 'local' && s.image) return; const im = lab.findImage(s.imageName); if (im) { try { lab.removeImage(s.imageName, false); rows.push({ name: 'Image ' + s.imageName, status: 'Removed', t: '0.0s' }); } catch (e) { } } });
+    lab.networks.filter(n => !n.builtin && (n.labels || {})['com.docker.compose.project'] === P.name).forEach(n => { try { lab.removeNetwork(n.name); rows.push({ name: 'Network ' + n.name, status: 'Removed', t: '0.1s' }); } catch (e) { rows.push({ name: 'Network ' + n.name, status: 'Resource is still in use', t: '0.1s', err: true }); } });
+    st.out(frame('Running', rows)); st.done(0);
+  });
+};
+function ctrArg(P, rest, st) { const names = rest.filter(a => a[0] !== '-'); for (const n of names) if (P.services && !P.nofile && !P.services[n]) throw new CErr('no such service: ' + n); return names; }
+function pick(st, P, names, all) { const lab = st.lab; let cs = projCtrs(lab, P); if (names.length) cs = cs.filter(c => names.includes(lbl(c)['com.docker.compose.service'])); if (!all) cs = cs.filter(c => c.running); return sortCtrs(P, cs); }
+CMD.ps = function (args, st, P) {
+  const lab = st.lab; const { f, rest, err } = parseFlags(args, ['all|a:b', 'quiet|q:b', 'services:b', 'format:s', 'filter:l', 'status:l', 'no-trunc:b', 'orphans:b'], false, 'compose ps');
+  if (err) { st.err(err + '\n'); return st.done(1); }
+  const names = ctrArg(P, rest, st); let cs = pick(st, P, names, !!f.all);
+  if (f.status) cs = cs.filter(c => f.status.includes(c.state.status));
+  if (f.services) { const set = []; cs.forEach(c => { const s = lbl(c)['com.docker.compose.service']; if (!set.includes(s)) set.push(s); }); st.out(set.join('\n') + (set.length ? '\n' : '')); return st.done(0); }
+  if (f.quiet) { st.out(cs.map(c => c.id).join('\n') + (cs.length ? '\n' : '')); return st.done(0); }
+  const rows = [['NAME', 'IMAGE', 'COMMAND', 'SERVICE', 'CREATED', 'STATUS', 'PORTS']].concat(cs.map(c => { const cm = c.displayCmd(); return [c.name, c.imageRef.replace(/:latest$/, ''), '"' + (cm.length > 20 ? cm.slice(0, 19) + '…' : cm) + '"', lbl(c)['com.docker.compose.service'], U.humanDuration(lab.clock.now - c.created) + ' ago', lab.statusText(c), lab.portsText(c)]; }));
+  st.out(U.table(rows)); st.done(0);
+};
+CMD.logs = function (args, st, P) {
+  const lab = st.lab; const { f, rest, err } = parseFlags(args, ['follow|f:b', 'tail|n:s', 'timestamps|t:b', 'no-color:b', 'no-log-prefix:b', 'since:s', 'until:s', 'index:s'], false, 'compose logs');
+  if (err) { st.err(err + '\n'); return st.done(1); }
+  const names = ctrArg(P, rest, st); const cs = pick(st, P, names, true);
+  const w = Math.max.apply(null, cs.map(c => c.name.length).concat([0]));
+  const pre = c => f['no-log-prefix'] ? '' : c.name.padEnd(w) + '  | ';
+  const fmt = (c, e) => pre(c) + (f.timestamps ? U.iso(e.t) + ' ' : '') + e.text + '\n';
+  let all = []; cs.forEach(c => { let l = c.logs; if (f.tail !== undefined && f.tail !== 'all') l = l.slice(Math.max(0, l.length - Number(f.tail))); l.forEach((e, k) => all.push({ c, e, k })); });
+  all.sort((a, b) => a.e.t - b.e.t || cs.indexOf(a.c) - cs.indexOf(b.c) || a.k - b.k);
+  st.out(all.map(x => fmt(x.c, x.e)).join(''));
+  if (!f.follow) return st.done(0);
+  const subs = cs.map(c => { const sub = { log: e => st.out(fmt(c, e)), exit: () => { } }; c.subs.push(sub); return [c, sub]; });
+  st.onAbort(() => { subs.forEach(([c, sub]) => { c.subs = c.subs.filter(x => x !== sub); }); st.done(130); });
+};
+function lifecycle(verb, past, how) {
+  return function (args, st, P) {
+    const lab = st.lab; const { f, rest, err } = parseFlags(args, ['timeout|t:s', 'signal|s:s', 'wait:b'], false, 'compose ' + verb);
+    if (err) { st.err(err + '\n'); return st.done(1); }
+    const names = ctrArg(P, rest, st); let cs = pick(st, P, names, true);
+    if (verb === 'stop' || verb === 'kill') cs = cs.filter(c => c.running).reverse(); if (verb === 'start') cs = cs.filter(c => !c.running);
+    const rows = []; const t0 = lab.clock.now;
+    eachSeq(cs, (c, next) => {
+      const s = P.services[lbl(c)['com.docker.compose.service']]; const tm = f.timeout ? Number(f.timeout) : s ? Math.round(s.stopGrace / 1000) : 10;
+      const fin = () => { rows.push({ name: 'Container ' + c.name, status: past, t: secs(lab.clock.now - t0) }); next(); };
+      try { if (how === 'stop') lab.stop(c, tm, fin); else if (how === 'start') { lab.start(c); lab.wait(200, fin); } else if (how === 'restart') lab.restart(c, tm, fin); else { lab.kill(c, f.signal || 'KILL'); lab.wait(100, fin); } } catch (e) { rows.push({ name: 'Container ' + c.name, status: 'Error', t: '0.1s', err: true }); st.err(failText(e)); next(); }
+    }, () => { st.out(frame(({ stop: 'Stopping', start: 'Running', restart: 'Restarting', kill: 'Killing' })[verb], rows)); st.done(rows.some(r => r.err) ? 1 : 0); });
+  };
+}
+CMD.stop = lifecycle('stop', 'Stopped', 'stop'); CMD.start = lifecycle('start', 'Started', 'start'); CMD.restart = lifecycle('restart', 'Started', 'restart'); CMD.kill = lifecycle('kill', 'Killed', 'kill');
+CMD.rm = function (args, st, P) {
+  const lab = st.lab; const { f, rest, err } = parseFlags(args, ['force|f:b', 'stop|s:b', 'volumes|v:b'], false, 'compose rm'); if (err) { st.err(err + '\n'); return st.done(1); }
+  const names = ctrArg(P, rest, st); let cs = pick(st, P, names, true); if (!f.stop) cs = cs.filter(c => !c.running);
+  if (!cs.length) { st.err('No stopped containers\n'); return st.done(0); }
+  const doIt = () => { const rows = []; cs.forEach(c => { try { lab.removeContainer(c, { force: true, volumes: !!f.volumes }); rows.push({ name: 'Container ' + c.name, status: 'Removed', t: '0.1s' }); } catch (e) { } }); st.out(frame('Removing', rows)); st.done(0); };
+  if (f.force) return doIt();
+  st.ctx.session.ask('Going to remove ' + cs.map(c => c.name).join(', ') + '\nAre you sure? [yN] ', (ans, io) => { if (/^y(es)?$/i.test(ans)) doIt(); else st.done(0); }, { print: t => st.out(t) });
+};
+CMD.build = function (args, st, P) {
+  const lab = st.lab; const { f, rest, err } = parseFlags(args, ['no-cache:b', 'pull:b', 'quiet|q:b', 'build-arg:l', 'progress:s', 'with-dependencies:b'], false, 'compose build'); if (err) { st.err(err + '\n'); return st.done(1); }
+  const names = ctrArg(P, rest, st); const sel = (names.length ? names : P.order).filter(n => P.services[n].build);
+  if (!sel.length) { st.err('No services to build\n'); return st.done(0); }
+  const rows = []; let fail = null;
+  eachSeq(sel, (n, next) => { if (fail) return next(); ensureImage(st, P, P.services[n], { build: true, noCache: !!f['no-cache'] }, rows, e => { if (e) fail = e; next(); }); }, () => { if (fail) { st.err(failText(fail)); return st.done(1); } st.out(frame('Building', sel.map(n => ({ name: 'Service ' + n, status: 'Built', t: '0.0s' })))); st.done(0); });
+};
+CMD.pull = function (args, st, P) {
+  const lab = st.lab; const { rest, err } = parseFlags(args, ['quiet|q:b', 'ignore-pull-failures:b', 'include-deps:b'], false, 'compose pull'); if (err) { st.err(err + '\n'); return st.done(1); }
+  const names = ctrArg(P, rest, st); const sel = (names.length ? names : P.order).filter(n => P.services[n].image && !P.services[n].build); const rows = []; const t0 = lab.clock.now; let fail = null;
+  eachSeq(sel, (n, next) => { lab.pull(P.services[n].image, () => { }, (e) => { if (e) { rows.push({ name: n, status: 'Error', t: secs(lab.clock.now - t0), err: true }); fail = e; } else rows.push({ name: n, status: 'Pulled', t: secs(lab.clock.now - t0) }); next(); }); }, () => { st.out(frame('Pulling', rows)); if (fail) { st.err('Error response from daemon: ' + fail.message + '\n'); return st.done(1); } st.done(0); });
+};
+CMD.exec = function (args, st, P) {
+  const lab = st.lab; const { f, rest, err } = parseFlags(args, ['detach|d:b', 'interactive|i:b', 'tty|t:b', 'no-TTY|T:b', 'env|e:l', 'workdir|w:s', 'user|u:s', 'index:s', 'privileged:b'], true, 'compose exec');
+  if (err) { st.err(err + '\n'); return st.done(1); }
+  if (rest.length < 2) { st.err('"docker compose exec" requires at least 2 arguments.\n'); return st.done(1); }
+  const sn = rest[0]; if (!P.services[sn]) throw new CErr('no such service: ' + sn);
+  const cs = svcCtrs(lab, P, sn).filter(c => c.running); const idx = f.index ? Number(f.index) : 1; const c = cs.find(x => Number(lbl(x)['com.docker.compose.container-number']) === idx);
+  if (!c) { st.err('service "' + sn + '" is not running\n'); return st.done(1); }
+  const a = []; if (f.detach) a.push('-d'); a.push('-i', '-t'); if (f['no-TTY']) a.splice(a.indexOf('-t'), 1); (f.env || []).forEach(e => a.push('-e', e)); if (f.workdir) a.push('-w', f.workdir); if (f.user) a.push('-u', f.user);
+  SUB.exec(a.concat([c.name], rest.slice(1)), st);
+};
+CMD.run = function (args, st, P) {
+  const lab = st.lab; const { f, rest, err } = parseFlags(args, ['rm:b', 'detach|d:b', 'interactive|i:b', 'tty|t:b', 'no-TTY|T:b', 'name:s', 'env|e:l', 'volume|v:l', 'publish|p:l', 'service-ports|P:b', 'user|u:s', 'workdir|w:s', 'entrypoint:s', 'no-deps:b', 'build:b', 'label|l:l', 'quiet-pull:b'], true, 'compose run');
+  if (err) { st.err(err + '\n'); return st.done(1); }
+  const sn = rest[0]; if (!sn) { st.err('"docker compose run" requires at least 1 argument.\n'); return st.done(1); }
+  const s = P.services[sn]; if (!s) throw new CErr('no such service: ' + sn);
+  const deps = f['no-deps'] ? [] : Object.keys(s.depends);
+  const go = () => {
+    const names = P.order.filter(n => s.depends[n] !== undefined || false);
+    ensureImage(st, P, s, { build: !!f.build }, [], (e, img) => {
+      if (e) { st.err(failText(e)); return st.done(1); }
+      const nets = Object.keys(s.networks).map(k => P.networks[k]).filter(Boolean);
+      const a = []; if (f.rm) a.push('--rm'); if (f.detach) a.push('-d'); if (!f['no-TTY'] && !f.detach) a.push('-it');
+      a.push('--name', f.name || P.name + '-' + sn + '-run-' + U.hexOf('run' + lab.clock.now + sn, 12));
+      if (nets[0]) { a.push('--network', nets[0].name, '--network-alias', sn); }
+      Object.keys(s.environment).forEach(k => a.push('-e', s.environment[k] === null ? k : k + '=' + s.environment[k])); (f.env || []).forEach(x => a.push('-e', x));
+      s.volumes.forEach(m => a.push('-v', (m.source || '') + (m.source ? ':' : '') + m.target + (m.ro ? ':ro' : ''))); (f.volume || []).forEach(x => a.push('-v', x));
+      (f.service_ports ? s.ports : f.publish || []).forEach(p => a.push('-p', p));
+      if (s.workdir || f.workdir) a.push('-w', f.workdir || s.workdir); if (s.user || f.user) a.push('-u', f.user || s.user);
+      a.push('--label', 'com.docker.compose.project=' + P.name, '--label', 'com.docker.compose.service=' + sn, '--label', 'com.docker.compose.oneoff=True', '--label', 'com.docker.compose.container-number=1');
+      const ent = f.entrypoint !== undefined ? f.entrypoint : (s.entrypoint ? s.entrypoint.join(' ') : undefined); if (ent !== undefined) a.push('--entrypoint', ent);
+      const cmd = rest.length > 1 ? rest.slice(1) : (s.command || []);
+      SUB.run(a.concat([s.imageName], cmd), st);
+    });
+  };
+  if (!deps.length) return go();
+  upServices(st, P, deps, {}, (e, rows, started, fr) => { st.out(fr || ''); if (e) { st.err(failText(e)); return st.done(1); } go(); });
+};
+CMD.port = function (args, st, P) {
+  const lab = st.lab; const a = args.filter(x => x[0] !== '-'); if (a.length !== 2) { st.err('"docker compose port" requires exactly 2 arguments.\n'); return st.done(1); }
+  const c = svcCtrs(lab, P, a[0]).find(x => x.running); if (!c) { st.err('no container found for ' + a[0] + '\n'); return st.done(1); }
+  const b = (c._bound || []).find(x => String(x.port) === a[1].split('/')[0]); if (!b) { st.err('no port ' + a[1] + ' for container ' + c.name + '\n'); return st.done(1); }
+  st.out(b.ip + ':' + b.hostPort + '\n'); st.done(0);
+};
+CMD.ls = function (args, st, g) {
+  const lab = st.lab; const { f, err } = parseFlags(args, ['all|a:b', 'quiet|q:b', 'format:s', 'filter:l'], false, 'compose ls'); if (err) { st.err(err + '\n'); return st.done(1); }
+  const projs = {}; lab.containers.forEach(c => { const p = lbl(c)['com.docker.compose.project']; if (p) { (projs[p] = projs[p] || []).push(c); } });
+  const names = Object.keys(projs).filter(p => f.all || projs[p].some(c => c.running));
+  if (f.quiet) { st.out(names.join('\n') + (names.length ? '\n' : '')); return st.done(0); }
+  const rows = [['NAME', 'STATUS', 'CONFIG FILES']].concat(names.map(p => { const cs = projs[p]; const run = cs.filter(c => c.running).length; const ex = cs.length - run; const parts = []; if (run) parts.push('running(' + run + ')'); if (ex) parts.push('exited(' + ex + ')'); return [p, parts.join(', '), lbl(cs[0])['com.docker.compose.project.config_files'] || '']; }));
+  st.out(U.table(rows)); st.done(0);
+};
+CMD.config = function (args, st, P) {
+  const { f, rest, err } = parseFlags(args, ['quiet|q:b', 'services:b', 'volumes:b', 'networks:b', 'format:s', 'no-interpolate:b', 'output|o:s', 'profiles:b', 'images:b'], false, 'compose config'); if (err) { st.err(err + '\n'); return st.done(1); }
+  if (f.quiet) return st.done(0);
+  const sel = P.order.filter(P.active);
+  if (f.services) { st.out(sel.join('\n') + '\n'); return st.done(0); }
+  if (f.volumes) { st.out(Object.keys(P.volumes).join('\n') + (Object.keys(P.volumes).length ? '\n' : '')); return st.done(0); }
+  if (f.images) { st.out(sel.map(n => P.services[n].imageName).join('\n') + '\n'); return st.done(0); }
+  const out = { name: P.name, services: {} };
+  sel.slice().sort().forEach(n => {
+    const s = P.services[n]; const o = {};
+    if (s.build) o.build = { context: s.build.context, dockerfile: s.build.dockerfile, ...(Object.keys(s.build.args).length ? { args: s.build.args } : {}), ...(s.build.target ? { target: s.build.target } : {}) };
+    if (s.command) o.command = s.command; if (s.container_name) o.container_name = s.container_name;
+    if (Object.keys(s.depends).length) { o.depends_on = {}; Object.keys(s.depends).forEach(d => { o.depends_on[d] = { condition: s.depends[d], required: true }; }); }
+    if (Object.keys(s.environment).length) { o.environment = {}; Object.keys(s.environment).sort().forEach(k => { o.environment[k] = s.environment[k] === null ? null : String(s.environment[k]); }); }
+    if (s.entrypoint) o.entrypoint = s.entrypoint;
+    if (s.health) o.healthcheck = { test: s.health.test, timeout: secsStr(s.health.timeout), interval: secsStr(s.health.interval), retries: s.health.retries, ...(s.health.startPeriod ? { start_period: secsStr(s.health.startPeriod) } : {}) };
+    o.image = s.build && !s.image ? P.name + '-' + n : s.imageName;
+    if (s.networkMode) o.network_mode = s.networkMode; else { o.networks = {}; Object.keys(s.networks).forEach(k => { o.networks[k] = s.networks[k].aliases.length ? { aliases: s.networks[k].aliases } : null; }); }
+    if (s.ports.length) o.ports = s.ports.map(p => { const lp = NS.Lab.prototype.parsePort.call({}, p); const r = { mode: 'ingress', ...(lp.ip ? { host_ip: lp.ip } : {}), target: lp.port }; if (lp.hostPort) r.published = String(lp.hostPort); r.protocol = lp.proto; return r; });
+    if (s.restart.name !== 'no') o.restart = s.restart.name + (s.restart.max ? ':' + s.restart.max : '');
+    if (s.volumes.length) o.volumes = s.volumes.map(m => ({ type: m.type, ...(m.source ? { source: m.source } : {}), target: m.target, ...(m.ro ? { read_only: true } : {}), ...(m.type === 'bind' ? { bind: { create_host_path: true } } : { volume: {} }) }));
+    if (s.workdir) o.working_dir = s.workdir; if (s.user) o.user = s.user;
+    out.services[n] = o;
+  });
+  const nets = {}; Object.values(P.networks).forEach(n => { nets[n.key] = { name: n.name, ...(n.driver !== 'bridge' ? { driver: n.driver } : {}), ...(n.external ? { external: true } : {}) }; }); if (Object.keys(nets).length) out.networks = nets;
+  const vols = {}; Object.values(P.volumes).forEach(v => { vols[v.key] = { name: v.name, ...(v.external ? { external: true } : {}) }; }); if (Object.keys(vols).length) out.volumes = vols;
+  st.out(NS.yaml.dump(out)); st.done(0);
+};
+function secsStr(ms) { if (ms % 60000 === 0 && ms >= 60000) return ms / 60000 + 'm'; if (ms % 1000 === 0) return ms / 1000 + 's'; return ms + 'ms'; }
+NS.composeLoad = loadProject;
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
@@ -3102,6 +3686,10 @@ NS.CHEAT = [
   ['Images et Dockerfile', [
     ['docker build -t monimage:1.0 .', 'construit une image depuis le Dockerfile du dossier'], ['docker build --no-cache -t monimage .', 'ignore le cache de couches'], ['docker build -f autre.Dockerfile -t x .', 'Dockerfile alternatif'], ['docker build --build-arg VERSION=2 -t x .', 'passe un argument ARG'],
     ['docker build --progress=plain -t x .', 'sortie détaillée'], ['docker history monimage:1.0', 'couches d\'une image'], ['docker commit web monimage:snap', 'image depuis un conteneur'], ['docker tag monimage:1.0 monimage:latest', 'ajoute un nom']]],
+  ['Docker Compose', [
+    ['docker compose up -d', 'crée et démarre tout le projet (compose.yaml)'], ['docker compose ps', 'conteneurs du projet'], ['docker compose logs -f', 'journaux de tous les services'], ['docker compose logs web', 'journaux d\'un service'],
+    ['docker compose exec web sh', 'shell dans un service'], ['docker compose config', 'fichier validé et complété'], ['docker compose stop', 'arrête (sans supprimer)'], ['docker compose start', 'redémarre'],
+    ['docker compose up -d --build', 'reconstruit les images'], ['docker compose down', 'supprime conteneurs et réseau'], ['docker compose down -v', 'supprime aussi les volumes'], ['docker compose ls', 'projets en cours']]],
   ['Nettoyage', [
     ['docker rmi nginx', 'supprime une image'], ['docker container prune', 'supprime les conteneurs arrêtés'], ['docker image prune -a', 'supprime les images inutilisées'], ['docker system df', 'espace utilisé'], ['docker system prune', 'grand nettoyage']]],
   ['Dans le terminal', [
@@ -3263,6 +3851,9 @@ NS.checker = function (lab) {
     imgFile: (ref, p) => { const i = lab.findImage(ref); return i ? new NS.VFS(i.fs).read(p) : null; },
     imgPkg: (ref, p) => { const i = lab.findImage(ref); return !!i && !!(i.pkgs || {})[p]; },
     lastBuild: () => lab.lastBuild || null,
+    health: n => { const x = lab.getContainer(n); return x && x.state.health ? x.state.health.status : null; },
+    volFile: (v, p) => { const x = lab.getVolume(v); return x ? x.vfs.read(p) : null; },
+    yaml: p => { try { return NS.yaml.parse(lab.hostFs.read(p) || ''); } catch (e) { return null; } },
     inContainer: (n, p) => { const x = lab.getContainer(n); return x ? x.fs.read(p) : null; },
     count: kind => kind === 'containers' ? lab.containers.length : kind === 'running' ? lab.containers.filter(x => x.running).length : kind === 'exited' ? lab.containers.filter(x => x.state.status === 'exited' || x.state.status === 'created').length : kind === 'volumes' ? lab.volumes.length : kind === 'images' ? lab.images.length : 0,
     unusedVolumes: () => lab.volumes.filter(v => !lab.containers.some(x => x.mounts.some(m => m.name === v.name))).length,
@@ -3290,7 +3881,9 @@ NS.COVERAGE = {
     ['Dockerfile : FROM, COPY, RUN, ENV, ARG, WORKDIR, CMD, ENTRYPOINT, EXPOSE, USER, LABEL, VOLUME', 'ok', 'Dockerfile, RUN-ENV-CMD, Cache', 'ONBUILD, ADD d\'une URL et RUN --mount non gérés'],
     ['docker build : -t, -f, --build-arg, --no-cache, --target, -q, cache de couches, multi-étapes, .dockerignore', 'ok', 'Dockerfile, Cache', 'Sorties BuildKit imitées ; durées simulées'],
     ['docker history, docker commit', 'ok', 'Dockerfile', 'Historique des images du catalogue : indicatif'],
-    ['Docker Compose', 'no', '—', 'Prévu (phase suivante)'],
+    ['Docker Compose : fichier compose.yaml, projet, services, ports, volumes, réseaux, environment, restart', 'ok', 'Compose (6 TP)', 'Sous-ensemble du format : voir les limites'],
+    ['Compose : up, down, ps, logs, stop/start/restart, exec, run, build, pull, config, ls, port, rm', 'ok', 'Compose (6 TP)', 'Sorties de la version 2 imitées'],
+    ['Compose : depends_on (service_started, service_healthy, service_completed_successfully), healthcheck, --scale, profiles', 'ok', 'Données et santé', ''],
     ['Registres privés, docker login/push', 'no', '—', 'Hors périmètre pour l\'instant'],
     ['Docker Swarm, Kubernetes', 'no', '—', 'Hors périmètre'],
   ],
@@ -3300,7 +3893,8 @@ NS.LIMITS = [
   'Aucun vrai programme n\'est exécuté : nginx, httpd, redis, postgres et mysql sont des comportements scriptés (journaux de démarrage, réponses HTTP, commandes redis-cli basiques).',
   'Seules les images du catalogue existent (hello-world, alpine, busybox, ubuntu, debian, nginx, httpd, redis, postgres, mysql, mariadb, node, python). Les tags, identifiants, digests et tailles sont indicatifs.',
   'Les sorties et messages d\'erreur imitent Docker 27 ; quelques messages rares ont été reconstitués de mémoire et peuvent différer d\'un mot ou d\'une ponctuation.',
-  'docker build est simulé (cache de couches, multi-étapes, .dockerignore, ARG) mais les messages d\'erreur de build (Dockerfile absent, erreur de syntaxe, fichier COPY introuvable, image de base refusée) ont été écrits de mémoire. Les tailles de couches sont estimées, et l\'historique des images du catalogue est indicatif. RUN --mount, ONBUILD et ADD d\'une URL ne sont pas gérés. Pas de Docker Compose pour l\'instant, ni de docker login/push.',
+  'docker build est simulé (cache de couches, multi-étapes, .dockerignore, ARG) mais les messages d\'erreur de build (Dockerfile absent, erreur de syntaxe, fichier COPY introuvable, image de base refusée) ont été écrits de mémoire. Les tailles de couches sont estimées, et l\'historique des images du catalogue est indicatif. RUN --mount, ONBUILD et ADD d\'une URL ne sont pas gérés. Pas de docker login/push.',
+  'Docker Compose : seul un sous-ensemble du format est géré (services, build, image, command, entrypoint, environment, env_file, ports, volumes, networks, depends_on, healthcheck, restart, labels, profiles, scale). Ancres YAML, extends, include, secrets, configs et deploy (hors replicas) ne sont pas gérés. Les sorties (« [+] Running », « ✔ Container … Started ») sont reconstituées de mémoire d\'après Compose v2.29 ; les durées sont simulées et l\'affichage n\'est pas animé. Les messages de validation (propriété inconnue, volume non déclaré, cycle…) sont écrits de mémoire. Compose démarre les services l\'un après l\'autre, alors que le vrai Compose les lance en parallèle.',
   'Les programmes lancés par RUN et CMD sont ceux du mini-shell ; les interpréteurs python et node ne comprennent que les affichages (print, console.log), les variables d\'environnement et des variables simples. pip install et npm install sont simulés.',
   'Supprimer une image de base utilisée par une image construite ne provoque pas le conflit de dépendance de Docker.',
   'Le réseau est simplifié : adressage, isolation et DNS sont fidèles, mais pas la latence ni les pertes de paquets.',
@@ -3694,6 +4288,214 @@ SC.push({
     { label: 'Dans le Dockerfile, requirements.txt est copié avant d\'installer, et le code après', run: c => { const t = c.hostFile('/home/student/projet-api/Dockerfile') || ''; const a = t.search(/COPY\s+requirements\.txt/), b = t.search(/RUN\s+pip install/), d = t.search(/COPY\s+\.\s+\./); return a >= 0 && b > a && d > b; } },
     { label: 'Le dernier build a réutilisé le cache pour pip install', run: c => { const b = c.lastBuild(); return !!b && b.ok && b.steps.some(s => /pip install/.test(s.label) && s.cached); } },
     { label: 'Une image api existe', run: c => c.image('api:3') || c.image('api:4') },
+  ],
+});
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* tp_compose.js — TP Docker Compose : décrire une application multi-conteneurs dans un fichier. */
+(function (g) {
+'use strict';
+const NS = g.NS; const SC = NS.SCENARIOS; const P = NS.tpP, S = NS.tpS, solveWith = NS.solveWith;
+const W = (lab, p, d) => { lab.hostFs.writep(p, d); };
+/* commande qui écrit un fichier (utilisée par les corrections) */
+const pf = (path, text) => "printf '" + text.replace(/\\/g, '\\\\').replace(/\n/g, '\\n') + "' > " + path;
+const pre = t => '<pre>' + t.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
+
+const BOUTIQUE = 'services:\n  web:\n    image: nginx\n    ports:\n      - "8080:80"\n  cache:\n    image: redis\n';
+
+/* ================================================= 1. Découverte */
+SC.push({
+  id: 'compose-decouverte', diff: 2, cat: 'Compose', level: 'Intermédiaire', duration: '40 min', title: 'Docker Compose : lancer une application en une commande',
+  desc: 'Une boutique est composée d\'un serveur web et d\'un cache Redis. Au lieu de deux « docker run », un seul fichier Compose décrit l\'ensemble.',
+  objectives: ['Expliquer à quoi sert Docker Compose', 'Lire un fichier compose.yaml (services, image, ports)', 'Utiliser up, ps, logs, stop, start', 'Identifier ce que Compose crée automatiquement (réseau, noms)'],
+  parts: [
+    P('Pourquoi Compose ?', [
+      'Une application réelle compte plusieurs conteneurs : un serveur web, une base de données, un cache… Les lancer avec <code>docker run</code> exige de retenir pour chacun une longue liste d\'options (réseau, ports, volumes, variables) et de les exécuter <b>dans le bon ordre</b>. C\'est long, source d\'erreurs, et impossible à partager proprement.',
+      '<b>Docker Compose</b> résout ce problème : on décrit toute l\'application dans <b>un fichier texte</b> (<code>compose.yaml</code>) et on la pilote avec <code>docker compose …</code>. Ce fichier se versionne avec le code : n\'importe qui obtient le même environnement avec une seule commande.',
+      'Le fichier est au format <b>YAML</b> : des couples <code>clé: valeur</code>, une <b>indentation par espaces</b> (jamais de tabulation) qui exprime l\'imbrication, et des listes introduites par un tiret. Sous la clé <code>services:</code> on déclare un bloc par conteneur ; <b>le nom du service</b> sert aussi de nom DNS pour que les services se joignent entre eux.'],
+    [S('Allez dans le projet et regardez-le : <code>cd ~/boutique &amp;&amp; ls</code>.', 'Compose cherche automatiquement un fichier <b>compose.yaml</b> dans le dossier courant. Le <b>nom du dossier</b> devient le nom du <i>projet</i>.', 'Un seul fichier : <code>compose.yaml</code>.'),
+     S('Lisez le fichier : <code>cat compose.yaml</code>.', 'Avant de lancer quoi que ce soit, on lit : c\'est le « plan » de l\'application.', 'Deux services : <b>web</b> (image nginx, port 8080 de l\'hôte vers 80 du conteneur) et <b>cache</b> (image redis). Notez les espaces d\'indentation.', [['services:', 'liste des conteneurs de l\'application'], ['web:', 'nom du service (aussi son nom DNS)'], ['image: nginx', 'image utilisée (comme l\'argument de docker run)'], ['ports: - "8080:80"', 'équivalent de -p 8080:80']]),
+     S('Faites afficher la version « comprise » par Docker : <code>docker compose config</code>.', 'La commande valide le fichier et le réécrit avec toutes les valeurs explicites. C\'est le meilleur réflexe pour détecter une erreur <i>avant</i> de lancer.', 'Le même fichier en version complète : le nom du projet (<code>name: boutique</code>), un réseau <code>boutique_default</code> apparu tout seul, les ports en notation détaillée.')]),
+    P('Démarrer le projet', [
+      '<code>docker compose up</code> crée tout ce qui manque : le <b>réseau</b> du projet, puis un conteneur par service. Les noms suivent le modèle <code>projet-service-numéro</code> (ici <code>boutique-web-1</code>). Avec <code>-d</code> (detached), le terminal est rendu ; sans lui, il affiche les journaux de tous les services jusqu\'à Ctrl+C.',
+      'Ce sont de <b>vrais conteneurs Docker ordinaires</b> : Compose ne fait que lancer pour vous les commandes que vous écririez à la main, et pose des <i>étiquettes</i> (labels) pour retrouver ses conteneurs.'],
+    [S('Lancez : <code>docker compose up -d</code>.', 'Compose télécharge les images absentes, crée le réseau puis démarre les deux conteneurs.', 'Un bloc « [+] Running » : les images téléchargées (Pulled), le réseau <code>boutique_default</code> (Created), puis <code>boutique-web-1</code> et <code>boutique-cache-1</code> (Started).', [['up', 'crée et démarre les services'], ['-d', 'en arrière-plan']]),
+     S('Listez les services du projet : <code>docker compose ps</code>.', 'Comme docker ps, mais limité à ce projet et avec une colonne SERVICE.', 'Deux lignes « Up », le port <code>0.0.0.0:8080-&gt;80/tcp</code> pour web.'),
+     S('Testez le site : <code>curl localhost:8080</code>.', 'Le port 8080 de l\'hôte est publié grâce à la ligne <code>ports</code> du fichier.', 'La page « Welcome to nginx! ».'),
+     S('Lisez les journaux du cache : <code>docker compose logs cache</code>.', 'Compose agrège les journaux ; chaque ligne est préfixée du nom du conteneur. Sans nom de service, il affiche tous les services.', 'Les lignes de démarrage de Redis, préfixées par <code>boutique-cache-1  |</code>.'),
+     S('Regardez le réseau : <code>docker network ls</code>.', 'Compose a créé un réseau dédié au projet : les conteneurs s\'y joignent par le <b>nom de leur service</b>.', 'Un réseau <code>boutique_default</code> en plus de bridge, host et none.')]),
+    P('Arrêter, redémarrer', [
+      '<code>stop</code> arrête les conteneurs sans les supprimer, <code>start</code> les redémarre. <code>down</code> (à retenir !) arrête <b>et supprime</b> les conteneurs et le réseau — mais conserve les volumes. <code>up</code> est <b>idempotent</b> : relancé alors que rien n\'a changé, il ne recrée rien.'],
+    [S('Arrêtez : <code>docker compose stop</code>, puis <code>docker compose ps -a</code>.', '<code>ps</code> seul n\'affiche que les conteneurs en cours ; <code>-a</code> montre aussi ceux qui sont arrêtés.', 'Les deux conteneurs sont « Exited ».'),
+     S('Redémarrez : <code>docker compose start</code>, puis <code>docker compose up -d</code>.', 'start relance les conteneurs existants. up -d ensuite constate que tout tourne déjà et ne change rien.', 'Pour up -d : « Running » (et non « Started ») devant chaque conteneur : rien n\'a été recréé.')]),
+  ],
+  recap: ['Un fichier compose.yaml décrit l\'application ; docker compose up -d la démarre.', 'Le nom du dossier devient le nom du projet : conteneurs « projet-service-1 », réseau « projet_default ».', 'Le nom d\'un service est son nom DNS dans le réseau du projet.', 'down supprime conteneurs et réseau (pas les volumes) ; stop/start conservent les conteneurs.', 'docker compose config valide et affiche le fichier tel que Docker le comprend.'],
+  build(lab) { W(lab, '/home/student/boutique/compose.yaml', BOUTIQUE); },
+  solve: solveWith(['cd /home/student/boutique', 'cat compose.yaml', 'docker compose config', 'docker compose up -d', 'docker compose ps', 'curl localhost:8080', 'docker compose logs cache', 'docker network ls', 'docker compose stop', 'docker compose ps -a', 'docker compose start', 'docker compose up -d']),
+  checks: [
+    { label: 'Le service web (boutique-web-1) tourne, port 8080 publié', run: c => c.running('boutique-web-1') && c.published('boutique-web-1', 8080, 80) },
+    { label: 'Le service cache (boutique-cache-1) tourne', run: c => c.running('boutique-cache-1') },
+    { label: 'Le réseau boutique_default a été créé par Compose', run: c => c.network('boutique_default') && c.onNet('boutique-web-1', 'boutique_default') && c.onNet('boutique-cache-1', 'boutique_default') },
+    { label: 'http://localhost:8080 répond', run: c => c.http('http://localhost:8080').body.includes('nginx') },
+  ],
+});
+
+/* ================================================= 2. Écrire son fichier */
+const VITRINE = 'services:\n  site:\n    image: nginx:alpine\n    ports:\n      - "8081:80"\n    volumes:\n      - ./html:/usr/share/nginx/html:ro\n  cache:\n    image: redis\n    restart: unless-stopped\n    volumes:\n      - cache-data:/data\nvolumes:\n  cache-data:\n';
+SC.push({
+  id: 'compose-ecrire', diff: 2, cat: 'Compose', level: 'Intermédiaire', duration: '45 min', title: 'Écrire son propre fichier Compose',
+  desc: 'À partir d\'un cahier des charges, écrivez le fichier compose.yaml d\'un site statique et de son cache, avec bind mount, volume nommé et politique de redémarrage.',
+  objectives: ['Écrire un fichier Compose valide (YAML)', 'Traduire des options de docker run : ports, volumes, restart', 'Déclarer un volume nommé au niveau racine', 'Valider avec docker compose config'],
+  parts: [
+    P('Du docker run au fichier Compose', [
+      'Chaque option de <code>docker run</code> a son équivalent dans un service : <code>-p 8081:80</code> devient la liste <code>ports</code>, <code>-v dossier:/chemin:ro</code> devient la liste <code>volumes</code>, <code>--restart unless-stopped</code> devient <code>restart</code>, <code>-e VAR=x</code> devient <code>environment</code>.',
+      'Deux règles à connaître. 1) Un <b>volume nommé</b> doit être <b>déclaré</b> dans la section racine <code>volumes:</code> (sinon Compose refuse le fichier). 2) Un chemin <b>relatif</b> comme <code>./html</code> est calculé par rapport au dossier du fichier Compose : on peut donc déplacer tout le projet sans rien changer.',
+      'Cahier des charges : un service <b>site</b> (nginx:alpine) publié sur le port <b>8081</b>, qui sert le dossier <code>./html</code> monté en <b>lecture seule</b> ; un service <b>cache</b> (redis) qui redémarre automatiquement sauf arrêt volontaire, avec ses données dans un volume nommé <b>cache-data</b>.'],
+    [S('Allez dans le dossier : <code>cd ~/vitrine &amp;&amp; ls</code>.', 'Le site (dossier html) existe déjà, mais il n\'y a pas encore de fichier Compose.', 'Un dossier <code>html</code>.'),
+     S('Créez le fichier avec l\'éditeur : <code>nano compose.yaml</code>, puis recopiez le contenu ci-dessous (Ctrl+O, Entrée, Ctrl+X). Attention : <b>2 espaces</b> par niveau, <b>aucune tabulation</b>.' + pre(VITRINE), 'L\'indentation est la syntaxe même du YAML : une ligne mal décalée change le sens, ou rend le fichier invalide. Si vous bloquez, « Charger la correction » écrit le fichier à votre place.', '<code>cat compose.yaml</code> affiche le fichier.', [['./html:/usr/share/nginx/html:ro', 'dossier du projet : dossier de nginx, en lecture seule'], ['cache-data:/data', 'volume nommé : dossier où Redis stocke ses données'], ['restart: unless-stopped', 'redémarre sauf si vous avez arrêté le conteneur vous-même'], ['volumes: cache-data:', 'déclaration du volume nommé (au niveau racine)']])]),
+    P('Valider puis démarrer', [
+      '<code>docker compose config -q</code> (<i>quiet</i>) ne fait que vérifier : il n\'affiche rien si le fichier est valide, et une erreur précise sinon. Prenez l\'habitude de le lancer avant chaque <code>up</code>.'],
+    [S('Validez : <code>docker compose config -q</code>.', 'Pour détecter une faute de frappe avant de démarrer.', 'Aucune sortie : le fichier est valide. (En cas d\'erreur, lisez le message : il cite la ligne ou le service en cause.)'),
+     S('Démarrez : <code>docker compose up -d</code>, puis <code>curl localhost:8081</code>.', 'Compose crée le réseau, le volume <code>vitrine_cache-data</code> (préfixé par le projet), puis les deux conteneurs.', 'Le contenu de votre page (« Vitrine »).'),
+     S('Modifiez la page sur l\'hôte : <code>echo "&lt;h1&gt;Vitrine v2&lt;/h1&gt;" &gt; html/index.html</code>, puis <code>curl localhost:8081</code>.', 'Le bind mount relie le dossier de l\'hôte au conteneur : la modification est visible tout de suite, sans redémarrer.', '« Vitrine v2 ».'),
+     S('Observez le volume : <code>docker volume ls</code>.', 'Compose préfixe le nom du volume par celui du projet pour éviter les collisions entre projets.', 'Un volume nommé <code>vitrine_cache-data</code>.')]),
+  ],
+  recap: ['Chaque option de docker run a son équivalent dans le service (ports, volumes, restart, environment…).', 'Un volume nommé s\'utilise dans le service ET se déclare dans la section racine volumes.', 'Les chemins relatifs sont relatifs au fichier Compose.', 'docker compose config -q valide un fichier sans rien lancer.'],
+  build(lab) { W(lab, '/home/student/vitrine/html/index.html', '<h1>Vitrine</h1>\n'); },
+  solve: solveWith(['cd /home/student/vitrine', pf('compose.yaml', VITRINE), 'docker compose config -q', 'docker compose up -d', 'curl localhost:8081', 'echo "<h1>Vitrine v2</h1>" > html/index.html', 'curl localhost:8081', 'docker volume ls']),
+  checks: [
+    { label: 'compose.yaml existe et déclare les services site et cache', run: c => { const y = c.yaml('/home/student/vitrine/compose.yaml'); return !!y && !!y.services && !!y.services.site && !!y.services.cache; } },
+    { label: 'Le volume cache-data est déclaré à la racine du fichier', run: c => { const y = c.yaml('/home/student/vitrine/compose.yaml'); return !!y && !!y.volumes && 'cache-data' in y.volumes; } },
+    { label: 'site tourne, port 8081 publié, dossier html monté en lecture seule', run: c => { const x = c.get('vitrine-site-1'); return !!x && c.published('vitrine-site-1', 8081, 80) && x.mounts.some(m => m.type === 'bind' && m.destination === '/usr/share/nginx/html' && !m.rw); } },
+    { label: 'cache tourne avec le volume vitrine_cache-data et le redémarrage unless-stopped', run: c => c.running('vitrine-cache-1') && c.mountsVolume('vitrine-cache-1', 'vitrine_cache-data') && c.restart('vitrine-cache-1') === 'unless-stopped' },
+    { label: 'http://localhost:8081 sert votre page', run: c => /Vitrine/.test(c.http('http://localhost:8081').body) },
+  ],
+});
+
+/* ================================================= 3. Lire les erreurs */
+const CASSE = 'services:\n  web:\n    imagee: nginx\n    ports:\n      - "8080:80"\n  db:\n    image: redis\n    volumes:\n      - donnees:/data\n';
+SC.push({
+  id: 'compose-erreurs', diff: 3, cat: 'Compose', level: 'Avancé', duration: '45 min', title: 'Dépanner un fichier Compose',
+  desc: 'Le fichier d\'un collègue ne démarre pas. Trois erreurs de nature différente se cachent dedans : à vous de les lire, de les comprendre et de les corriger une à une.',
+  objectives: ['Lire un message d\'erreur de Compose', 'Distinguer erreur de syntaxe, erreur de logique et erreur d\'exécution', 'Corriger un fichier et valider', 'Résoudre un conflit de port'],
+  parts: [
+    P('Trois familles d\'erreurs', [
+      'Quand <code>docker compose up</code> échoue, la première question est : <b>à quelle étape ?</b> 1) <b>Lecture du fichier</b> (syntaxe YAML, propriété inconnue) : rien n\'est créé. 2) <b>Validation</b> (le fichier est lisible mais incohérent : volume non déclaré, service inconnu dans depends_on) : rien n\'est créé non plus. 3) <b>Exécution</b> (port déjà pris, image introuvable) : une partie du projet est déjà créée, il faut regarder l\'état avec <code>docker compose ps</code>.',
+      'Dans tous les cas : <b>lisez le message en entier</b>. Compose y indique le service, la propriété ou le port en cause.'],
+    [S('Allez dans le projet : <code>cd ~/boutique-cassee</code>, regardez le fichier (<code>cat compose.yaml</code>), puis tentez : <code>docker compose up -d</code>.', 'On provoque l\'erreur pour la lire.', 'Une erreur <code>validating … services.web Additional property imagee is not allowed</code> : la propriété « imagee » n\'existe pas (faute de frappe).'),
+     S('Corrigez la faute avec <code>nano compose.yaml</code> (<code>imagee</code> → <code>image</code>), puis relancez <code>docker compose up -d</code>.', 'Après chaque correction, on relance pour voir l\'erreur suivante.', 'Une nouvelle erreur : <code>service "db" refers to undefined volume donnees</code> — erreur de <i>logique</i> : le volume est utilisé mais jamais déclaré.')]),
+    P('Corriger la logique', [
+      'Un volume nommé utilisé dans un service doit être déclaré dans la section racine <code>volumes:</code>. Ajoutez à la fin du fichier deux lignes : <code>volumes:</code> puis, indentée de deux espaces, <code>donnees:</code>.'],
+    [S('Ajoutez la déclaration en fin de fichier (<code>nano compose.yaml</code>), validez avec <code>docker compose config -q</code>, puis <code>docker compose up -d</code>.', 'config -q vérifie le fichier sans lancer. Ici le fichier devient valide… mais l\'exécution va échouer.', 'Compose crée le réseau, le volume et démarre db, puis une erreur : <code>Bind for 0.0.0.0:8080 failed: port is already allocated</code>.')]),
+    P('Erreur d\'exécution : le port est pris', [
+      'Un port de l\'hôte ne peut être utilisé que par <b>un seul</b> processus. Un autre conteneur (« ancien ») publie déjà le 8080. Deux solutions : changer le port du côté <b>hôte</b> dans le fichier (<code>"8090:80"</code> : hôte à gauche, conteneur à droite), ou arrêter le conteneur gênant. Après l\'échec, une partie du projet existe déjà : <code>docker compose ps -a</code> permet de s\'en rendre compte.'],
+    [S('Identifiez le coupable : <code>docker ps</code> puis <code>docker compose ps -a</code>.', 'Pour savoir qui occupe le port et où en est le projet.', 'Le conteneur <b>ancien</b> publie 0.0.0.0:8080 ; le projet a son service db démarré et web « Created » (non démarré).'),
+     S('Changez le port dans le fichier (<code>"8090:80"</code>) puis relancez : <code>docker compose up -d</code>.', 'On modifie le côté hôte du mappage ; le service web, déjà créé, est recréé avec la nouvelle configuration.', 'Cette fois les deux services démarrent. <code>curl localhost:8090</code> répond.')]),
+  ],
+  recap: ['Erreur de lecture ou de validation : rien n\'est créé, corrigez le fichier.', 'Erreur d\'exécution (port, image) : une partie du projet peut exister — docker compose ps -a.', 'Un volume nommé doit être déclaré à la racine.', 'Port hôte à gauche, port conteneur à droite ; un port hôte = un seul usage.', 'docker compose config -q avant chaque up.'],
+  build(lab) { W(lab, '/home/student/boutique-cassee/compose.yaml', CASSE); NS.execLines(lab, ['docker run -d --name ancien -p 8080:80 nginx']); },
+  solve: solveWith(['cd /home/student/boutique-cassee', pf('compose.yaml', 'services:\n  web:\n    image: nginx\n    ports:\n      - "8090:80"\n  db:\n    image: redis\n    volumes:\n      - donnees:/data\nvolumes:\n  donnees:\n'), 'docker compose config -q', 'docker compose up -d', 'curl localhost:8090']),
+  checks: [
+    { label: 'Le fichier est valide : la propriété « image » est correcte', run: c => { const y = c.yaml('/home/student/boutique-cassee/compose.yaml'); return !!y && !!y.services && !!y.services.web && y.services.web.image === 'nginx' && !('imagee' in y.services.web); } },
+    { label: 'Le volume donnees est déclaré à la racine', run: c => { const y = c.yaml('/home/student/boutique-cassee/compose.yaml'); return !!y && !!y.volumes && 'donnees' in y.volumes; } },
+    { label: 'Le service web tourne sur un port hôte libre (pas 8080)', run: c => { const x = c.get('boutique-cassee-web-1'); return !!x && x.running && (x._bound || []).some(b => b.port === 80 && b.hostPort !== 8080); } },
+    { label: 'Le service db tourne avec le volume boutique-cassee_donnees', run: c => c.running('boutique-cassee-db-1') && c.mountsVolume('boutique-cassee-db-1', 'boutique-cassee_donnees') },
+    { label: 'Le conteneur « ancien » n\'a pas été touché', run: c => c.running('ancien') },
+  ],
+});
+
+/* ================================================= 4. Données, santé, ordre */
+const DONNEES = 'services:\n  db:\n    image: postgres:16\n    environment:\n      POSTGRES_PASSWORD: secret\n    volumes:\n      - pgdata:/var/lib/postgresql/data\n    healthcheck:\n      test: ["CMD-SHELL", "pg_isready -U postgres"]\n      interval: 5s\n      retries: 5\n  web:\n    image: nginx\n    ports:\n      - "8083:80"\n    depends_on:\n      db:\n        condition: service_healthy\n  notes:\n    image: alpine\n    command: sleep 3600\n    volumes:\n      - notes:/data\nvolumes:\n  pgdata:\n  notes:\n';
+SC.push({
+  id: 'compose-donnees', diff: 3, cat: 'Compose', level: 'Avancé', duration: '50 min', title: 'Ordre de démarrage, santé et persistance des données',
+  desc: 'Le site ne doit démarrer qu\'une fois la base prête, et les données doivent survivre à un « docker compose down ».',
+  objectives: ['Utiliser depends_on avec condition: service_healthy', 'Lire l\'état de santé d\'un conteneur', 'Montrer que down conserve les volumes', 'Savoir quand utiliser down -v'],
+  parts: [
+    P('Démarrer dans le bon ordre', [
+      '<code>depends_on</code> indique à Compose quel service démarrer avant un autre. Mais « démarré » ne veut pas dire « prêt » : une base de données met plusieurs secondes à accepter des connexions après le lancement de son processus. Avec <code>condition: service_healthy</code>, Compose attend que le service dépendant soit déclaré <b>sain</b>.',
+      'La santé est mesurée par un <b>healthcheck</b> : une commande exécutée régulièrement <i>dans</i> le conteneur (<code>interval</code>). Si elle réussit (code 0), le conteneur est « healthy » ; après <code>retries</code> échecs de suite, il devient « unhealthy ». En attendant : « health: starting ».'],
+    [S('Allez dans le projet et lisez-le : <code>cd ~/donnees &amp;&amp; cat compose.yaml</code>.', 'On repère le healthcheck de db (<code>pg_isready</code>, l\'outil PostgreSQL qui teste la disponibilité) et le depends_on de web.', 'Trois services : db, web (qui dépend de db « healthy »), notes (un petit conteneur alpine pour manipuler des fichiers).', [['test: ["CMD-SHELL", …]', 'la commande de test, exécutée dans un shell du conteneur'], ['interval: 5s', 'fréquence du test'], ['retries: 5', 'échecs consécutifs tolérés avant « unhealthy »'], ['condition: service_healthy', 'web attend que db soit sain']]),
+     S('Démarrez : <code>docker compose up -d</code>.', 'Compose démarre db, <b>attend</b> son état sain, puis seulement web.', 'Dans le bloc final, <code>donnees-db-1</code> est « Healthy » et <code>donnees-web-1</code> « Started » : l\'attente est visible dans les durées.'),
+     S('Regardez l\'état : <code>docker compose ps</code>.', 'La colonne STATUS indique la santé.', '<code>Up … (healthy)</code> pour db.')]),
+    P('Les données survivent à down', [
+      'Un conteneur est <b>jetable</b> : <code>down</code> le supprime avec son système de fichiers. Les données importantes doivent donc vivre dans un <b>volume nommé</b>, qui lui existe indépendamment. <code>down</code> <b>conserve</b> les volumes ; seul <code>down -v</code> les supprime (à n\'utiliser qu\'en connaissance de cause : les données sont perdues).'],
+    [S('Écrivez un fichier dans le volume : <code>docker compose exec notes sh -c "echo mes donnees &gt; /data/memo.txt"</code>.', 'On dépose une donnée dans le dossier /data du service notes, qui est un volume nommé.', 'Aucune sortie. <code>docker compose exec notes cat /data/memo.txt</code> affiche « mes donnees ».', [['exec notes', 'exécute une commande dans le service notes (pas besoin de connaître le nom du conteneur)'], ['sh -c "…"', 'lance un shell pour que la redirection > soit comprise DANS le conteneur']]),
+     S('Supprimez tout le projet : <code>docker compose down</code>, puis <code>docker ps -a</code> et <code>docker volume ls</code>.', 'On détruit les conteneurs pour vérifier que les données, elles, subsistent.', 'Plus aucun conteneur, plus de réseau ; mais les volumes <code>donnees_pgdata</code> et <code>donnees_notes</code> sont toujours là.'),
+     S('Recréez : <code>docker compose up -d</code>, puis <code>docker compose exec notes cat /data/memo.txt</code>.', 'De nouveaux conteneurs se rattachent aux mêmes volumes : les données sont retrouvées.', 'Le fichier est toujours là : « mes donnees ».')]),
+  ],
+  recap: ['depends_on ordonne ; avec condition: service_healthy il attend que le service soit réellement prêt.', 'healthcheck = commande de test exécutée régulièrement dans le conteneur ; STATUS montre (healthy).', 'down supprime conteneurs et réseau, pas les volumes ; down -v supprime aussi les volumes.', 'Les données à conserver vont dans un volume nommé.'],
+  build(lab) { W(lab, '/home/student/donnees/compose.yaml', DONNEES); },
+  solve: solveWith(['cd /home/student/donnees', 'docker compose up -d', 'docker compose ps', 'docker compose exec notes sh -c "echo mes donnees > /data/memo.txt"', 'docker compose down', 'docker volume ls', 'docker compose up -d', 'docker compose exec notes cat /data/memo.txt']),
+  checks: [
+    { label: 'La base donnees-db-1 tourne et est « healthy »', run: c => c.running('donnees-db-1') && c.health('donnees-db-1') === 'healthy' },
+    { label: 'Le site donnees-web-1 tourne (port 8083)', run: c => c.running('donnees-web-1') && c.published('donnees-web-1', 8083, 80) },
+    { label: 'Le fichier memo.txt a été écrit dans le volume donnees_notes', run: c => /mes donnees/.test(c.volFile('donnees_notes', '/memo.txt') || '') },
+    { label: 'Le fichier est visible dans le NOUVEAU conteneur notes (recréé après down)', run: c => { const x = c.get('donnees-notes-1'); return !!x && x.running && /mes donnees/.test(c.inContainer('donnees-notes-1', '/data/memo.txt') || '') && c.lab.events.some(e => e.type === 'container' && e.action === 'destroy' && (e.attrs.name || '') === 'donnees-notes-1'); } },
+  ],
+});
+
+/* ================================================= 5. Réseaux */
+const TROIS = 'services:\n  front:\n    image: alpine\n    command: sleep 3600\n  api:\n    image: nginx\n  back:\n    image: alpine\n    command: sleep 3600\n';
+const TROIS_OK = 'services:\n  front:\n    image: alpine\n    command: sleep 3600\n    networks:\n      - front\n  api:\n    image: nginx\n    networks:\n      - front\n      - back\n  back:\n    image: alpine\n    command: sleep 3600\n    networks:\n      - back\nnetworks:\n  front:\n  back:\n';
+SC.push({
+  id: 'compose-reseau', diff: 3, cat: 'Compose', level: 'Avancé', duration: '45 min', title: 'Cloisonner une application en deux réseaux',
+  desc: 'Trois services (front, api, back) partagent le réseau par défaut : front peut joindre back directement. Modifiez le fichier pour que seule l\'api serve d\'intermédiaire.',
+  objectives: ['Constater le réseau par défaut partagé de Compose', 'Déclarer des réseaux et y rattacher des services', 'Vérifier l\'isolation avec ping', 'Comprendre le DNS par réseau'],
+  parts: [
+    P('Le réseau par défaut', [
+      'Par défaut, Compose crée <b>un seul réseau</b> (<code>projet_default</code>) où tous les services se voient et se joignent par leur nom. Pratique pour démarrer, mais peu sûr : si le front est compromis, il atteint directement la base.',
+      'On déclare ses propres réseaux dans la section racine <code>networks:</code>, puis on rattache chaque service aux réseaux voulus avec une liste <code>networks:</code>. <b>Deux services qui n\'ont aucun réseau en commun ne peuvent ni se joindre ni même se résoudre par leur nom.</b> Le service « api », placé sur les deux réseaux, sert de passerelle.'],
+    [S('Allez dans le projet et démarrez-le : <code>cd ~/trois-tiers &amp;&amp; docker compose up -d</code>.', 'Premier état : aucun réseau déclaré, donc tout est sur trois-tiers_default.', 'Trois conteneurs démarrés et un seul réseau créé : <code>trois-tiers_default</code>.'),
+     S('Testez : <code>docker compose exec front ping -c 1 back</code>.', 'On constate le problème : front joint back directement.', 'Le ping réussit (« 1 packets transmitted, 1 received »).', [['exec front', 'lance la commande dans le service front'], ['ping -c 1 back', 'envoie un seul paquet vers le nom « back » (résolu par le DNS de Docker)']])]),
+    P('Cloisonner', [
+      'Objectif : réseau <b>front</b> pour front + api, réseau <b>back</b> pour api + back. Éditez <code>compose.yaml</code> : sous chaque service ajoutez la liste <code>networks</code> voulue, et déclarez <code>front:</code> et <code>back:</code> sous un <code>networks:</code> racine. Voici le fichier cible :' + pre(TROIS_OK)],
+    [S('Modifiez le fichier (<code>nano compose.yaml</code>) pour obtenir le fichier cible ci-dessus, puis validez : <code>docker compose config -q</code>.', 'Un service qui cite un réseau non déclaré provoque une erreur de validation : config -q la détecte avant le démarrage.', 'Aucune sortie si le fichier est valide.'),
+     S('Appliquez : <code>docker compose up -d</code>.', 'Compose détecte que la configuration des trois services a changé : il les <b>recrée</b> sur les nouveaux réseaux.', 'Deux nouveaux réseaux (<code>trois-tiers_front</code> et <code>trois-tiers_back</code>) et les trois conteneurs redémarrés.'),
+     S('Testez l\'isolation : <code>docker compose exec front ping -c 1 back</code>, puis <code>docker compose exec front ping -c 1 api</code> et <code>docker compose exec back ping -c 1 api</code>.', 'Pour vérifier que front n\'atteint plus back, mais que l\'api reste joignable des deux côtés.', 'Premier ping : « bad address \'back\' » (le nom n\'est même plus résolu). Les deux autres réussissent.')]),
+  ],
+  recap: ['Sans configuration, tous les services partagent le réseau projet_default.', 'Réseaux déclarés à la racine, rattachés service par service avec networks.', 'Pas de réseau commun = pas de résolution de nom ni de communication.', 'Un service sur deux réseaux joue le rôle de passerelle.'],
+  build(lab) { W(lab, '/home/student/trois-tiers/compose.yaml', TROIS); },
+  solve: solveWith(['cd /home/student/trois-tiers', 'docker compose up -d', 'docker compose exec front ping -c 1 back', pf('compose.yaml', TROIS_OK), 'docker compose config -q', 'docker compose up -d', 'docker compose exec front ping -c 1 back', 'docker compose exec front ping -c 1 api', 'docker compose exec back ping -c 1 api']),
+  checks: [
+    { label: 'Les réseaux trois-tiers_front et trois-tiers_back existent', run: c => c.network('trois-tiers_front') && c.network('trois-tiers_back') },
+    { label: 'front est sur le réseau front et api sur les deux', run: c => c.onNet('trois-tiers-front-1', 'trois-tiers_front') && c.onNet('trois-tiers-api-1', 'trois-tiers_front') && c.onNet('trois-tiers-api-1', 'trois-tiers_back') },
+    { label: 'back n\'est que sur le réseau back', run: c => c.onNet('trois-tiers-back-1', 'trois-tiers_back') && !c.onNet('trois-tiers-back-1', 'trois-tiers_front') && !c.onNet('trois-tiers-back-1', 'trois-tiers_default') },
+    { label: 'front ne peut plus joindre back', run: c => c.running('trois-tiers-front-1') && c.running('trois-tiers-back-1') && !c.reach('trois-tiers-front-1', 'trois-tiers-back-1') },
+    { label: 'front et back joignent l\'api', run: c => c.reach('trois-tiers-front-1', 'trois-tiers-api-1') && c.reach('trois-tiers-back-1', 'trois-tiers-api-1') },
+  ],
+});
+
+/* ================================================= 6. Build dans Compose */
+SC.push({
+  id: 'compose-build', diff: 3, cat: 'Compose', level: 'Avancé', duration: '45 min', title: 'Compose et construction d\'images (build)',
+  desc: 'Le service web utilise sa propre image, construite à partir d\'un Dockerfile du projet. Apprenez à reconstruire quand le code change.',
+  objectives: ['Utiliser la clé build dans un service', 'Comprendre quand Compose construit (ou non)', 'Utiliser up --build', 'Retrouver l\'image produite'],
+  parts: [
+    P('build à la place de image', [
+      'Un service peut, au lieu d\'une image toute faite, <b>construire la sienne</b> : <code>build: ./web</code> désigne le dossier (le <i>contexte</i>) contenant le Dockerfile. Compose appelle <code>docker build</code> pour vous et nomme l\'image <code>projet-service</code>.',
+      'Point essentiel : Compose ne construit <b>qu\'une fois</b>. Si l\'image existe déjà, <code>up</code> la réutilise, <b>même si vous avez modifié le code</b>. Pour forcer la reconstruction : <code>docker compose up -d --build</code> (ou <code>docker compose build</code>).'],
+    [S('Allez dans le projet : <code>cd ~/webbuild &amp;&amp; cat compose.yaml &amp;&amp; cat web/Dockerfile</code>.', 'On repère la ligne <code>build: ./web</code> et le Dockerfile du service.', 'Le service web a une clé <b>build</b> (pas de <b>image</b>) ; le Dockerfile copie index.html dans nginx.'),
+     S('Lancez : <code>docker compose up -d</code>, puis <code>curl localhost:8084</code>.', 'L\'image n\'existe pas encore : Compose la construit puis démarre les conteneurs.', 'La sortie de build (étapes FROM, COPY…) puis le bloc « Running ». Le site affiche « Version 1 ».')]),
+    P('Modifier le code', [
+      'Changez maintenant la page. Observez d\'abord ce qui se passe avec un simple <code>up -d</code> : rien, car l\'image existe déjà.'],
+    [S('Modifiez la page : <code>echo "&lt;h1&gt;Version 2&lt;/h1&gt;" &gt; web/index.html</code>, puis <code>docker compose up -d</code> et <code>curl localhost:8084</code>.', 'Pour constater le piège : Compose n\'a pas reconstruit l\'image.', 'La commande indique « Running » (rien ne change) et le site affiche toujours « Version 1 ».'),
+     S('Forcez la reconstruction : <code>docker compose up -d --build</code>, puis <code>curl localhost:8084</code>.', '--build reconstruit l\'image (le cache de couches accélère) et recrée le conteneur avec la nouvelle image.', 'Le build s\'exécute, le conteneur web est recréé, et le site affiche « Version 2 ».'),
+     S('Retrouvez l\'image : <code>docker images</code>.', 'L\'image construite par Compose est une image ordinaire, nommée d\'après le projet et le service.', 'Une image <code>webbuild-web</code> au tag latest.')]),
+  ],
+  recap: ['build: dossier construit l\'image du service ; image: ne fait que la télécharger.', 'Compose ne reconstruit pas tout seul : utilisez up --build après une modification du code.', 'L\'image est nommée projet-service.', 'Le cache de couches s\'applique comme avec docker build.'],
+  build(lab) {
+    W(lab, '/home/student/webbuild/compose.yaml', 'services:\n  web:\n    build: ./web\n    ports:\n      - "8084:80"\n  cache:\n    image: redis\n');
+    W(lab, '/home/student/webbuild/web/Dockerfile', 'FROM nginx:alpine\nCOPY index.html /usr/share/nginx/html/index.html\n');
+    W(lab, '/home/student/webbuild/web/index.html', '<h1>Version 1</h1>\n');
+  },
+  solve: solveWith(['cd /home/student/webbuild', 'docker compose up -d', 'curl localhost:8084', 'echo "<h1>Version 2</h1>" > web/index.html', 'docker compose up -d', 'curl localhost:8084', 'docker compose up -d --build', 'curl localhost:8084', 'docker images']),
+  checks: [
+    { label: 'L\'image webbuild-web a été construite par Compose', run: c => c.image('webbuild-web') },
+    { label: 'L\'image contient la « Version 2 »', run: c => /Version 2/.test(c.imgFile('webbuild-web', '/usr/share/nginx/html/index.html') || '') },
+    { label: 'Le conteneur webbuild-web-1 tourne, port 8084 publié', run: c => c.running('webbuild-web-1') && c.published('webbuild-web-1', 8084, 80) },
+    { label: 'http://localhost:8084 affiche « Version 2 »', run: c => /Version 2/.test(c.http('http://localhost:8084').body) },
   ],
 });
 })(typeof window !== 'undefined' ? window : globalThis);

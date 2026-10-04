@@ -244,7 +244,7 @@ class Lab {
     const env = (cfg.env || []).slice(); (o.env || []).forEach(e => { const k = e.split('=')[0]; const hasEq = e.indexOf('=') >= 0; const i = env.findIndex(x => x.split('=')[0] === k); const val = hasEq ? e : (o.hostEnv && o.hostEnv[k] !== undefined ? k + '=' + o.hostEnv[k] : null); if (val === null) return; if (i >= 0) env[i] = val; else env.push(val); });
     const hostname = o.hostname || id.slice(0, 12);
     env.push('HOSTNAME=' + hostname);
-    const config = { entrypoint: o.entrypoint !== undefined && o.entrypoint !== null ? o.entrypoint : cfg.entrypoint, cmd: o.cmd && o.cmd.length ? o.cmd : (o.entrypoint !== undefined && o.entrypoint !== null ? [] : cfg.cmd), env, exposed: cfg.exposed, workdir: o.workdir || cfg.workdir || '', user: o.user || '', tty: !!o.tty, openStdin: !!o.openStdin, hostname, labels: o.labels || {}, stopSignal: cfg.stopSignal, imageCmd: cfg.cmd, volumes: cfg.volumes };
+    const config = { entrypoint: o.entrypoint !== undefined && o.entrypoint !== null ? o.entrypoint : cfg.entrypoint, cmd: o.cmd && o.cmd.length ? o.cmd : (o.entrypoint !== undefined && o.entrypoint !== null ? [] : cfg.cmd), env, exposed: cfg.exposed, workdir: o.workdir || cfg.workdir || '', user: o.user || '', tty: !!o.tty, openStdin: !!o.openStdin, hostname, labels: Object.assign({}, cfg.labels || {}, o.labels || {}), health: o.health || null, stopSignal: cfg.stopSignal, imageCmd: cfg.cmd, volumes: cfg.volumes };
     if (o.entrypoint !== undefined && o.entrypoint !== null && !(o.cmd && o.cmd.length)) config.cmd = [];
     const ports = (o.ports || []).slice();
     const c = new Container(this, {
@@ -325,6 +325,24 @@ class Lab {
     this.emit('container', 'start', c.id, { image: c.imageRef, name: c.name });
     if (c.state.restarting) { c.state.restarting = false; }
     this._launch(c, eff, beh, isSvc);
+    if (c.config.health && c.config.health.test && c.config.health.test.length) this._health(c);
+    else c.state.health = null;
+  }
+  /* sonde de santé : exécute périodiquement la commande dans le conteneur */
+  _health(c) {
+    const h = c.config.health; c.state.health = { status: 'starting', fails: 0, log: [] };
+    const t = h.test; const line = t[0] === 'CMD-SHELL' ? t.slice(1).join(' ') : t[0] === 'CMD' ? t.slice(1).map(x => /^[\w@%+=:,./-]+$/.test(x) ? x : "'" + x.replace(/'/g, "'\\''") + "'").join(' ') : t.join(' ');
+    const probe = () => {
+      let out = ''; const ctx = NS.containerCtx(this, c, { tty: false, shname: 'sh' }); const sh = new NS.Shell(this, ctx);
+      sh.run(line, { out: x => { out += x; }, err: x => { out += x; }, done: code => {
+        if (c.state.status !== 'running' || !c.state.health) return;
+        const hs = c.state.health; hs.log.push({ code, out: out.slice(0, 200), at: this.clock.now }); if (hs.log.length > 5) hs.log.shift();
+        if (code === 0) { hs.fails = 0; hs.status = 'healthy'; } else if (this.clock.now - c.state.startedAt >= (h.startPeriod || 0) && ++hs.fails >= (h.retries || 3)) hs.status = 'unhealthy';
+        this.emit('container', 'health_status: ' + hs.status, c.id, { name: c.name }); this.changed();
+        this._sched(c, h.interval || 30000, probe);
+      } });
+    };
+    this._sched(c, h.interval || 30000, probe);
   }
   _etcFiles(c) {
     const ip = c.primaryIp() || '127.0.0.1';
@@ -424,7 +442,7 @@ class Lab {
   statusText(c) {
     const s = c.state; const now = this.clock.now;
     if (s.status === 'created') return 'Created';
-    if (s.status === 'running') return 'Up ' + U.humanDuration(now - s.startedAt).replace('Less than a second', 'Less than a second');
+    if (s.status === 'running') return 'Up ' + U.humanDuration(now - s.startedAt) + (s.health ? (s.health.status === 'healthy' ? ' (healthy)' : s.health.status === 'unhealthy' ? ' (unhealthy)' : ' (health: starting)') : '');
     if (s.status === 'paused') return 'Up ' + U.humanDuration(now - s.startedAt) + ' (Paused)';
     if (s.status === 'restarting') return 'Restarting (' + s.exitCode + ') ' + U.humanDuration(now - s.finishedAt) + ' ago';
     return 'Exited (' + s.exitCode + ') ' + U.humanDuration(now - (s.finishedAt === null ? s.startedAt : s.finishedAt)) + ' ago';
@@ -451,7 +469,7 @@ class Lab {
     const eff = c.config.entrypoint.concat(c.config.cmd);
     return {
       Id: c.id, Created: U.iso(this.epoch + c.created), Path: eff[0] || '', Args: eff.slice(1),
-      State: { Status: c.state.status, Running: c.state.status === 'running' || c.state.status === 'paused', Paused: c.state.status === 'paused', Restarting: c.state.status === 'restarting', OOMKilled: false, Dead: false, Pid: c.state.pid, ExitCode: c.state.exitCode, Error: c.state.error || '', StartedAt: c.state.startedAt === null ? '0001-01-01T00:00:00Z' : U.iso(this.epoch + c.state.startedAt), FinishedAt: c.state.finishedAt === null ? '0001-01-01T00:00:00Z' : U.iso(this.epoch + c.state.finishedAt) },
+      State: { Status: c.state.status, Running: c.state.status === 'running' || c.state.status === 'paused', Paused: c.state.status === 'paused', Restarting: c.state.status === 'restarting', OOMKilled: false, Dead: false, Pid: c.state.pid, ExitCode: c.state.exitCode, Error: c.state.error || '', StartedAt: c.state.startedAt === null ? '0001-01-01T00:00:00Z' : U.iso(this.epoch + c.state.startedAt), FinishedAt: c.state.finishedAt === null ? '0001-01-01T00:00:00Z' : U.iso(this.epoch + c.state.finishedAt), ...(c.state.health ? { Health: { Status: c.state.health.status, FailingStreak: c.state.health.fails, Log: c.state.health.log.map(l => ({ ExitCode: l.code, Output: l.out })) } } : {}) },
       Image: 'sha256:' + c.imageId, ResolvConfPath: '/var/lib/docker/containers/' + c.id + '/resolv.conf', HostnamePath: '/var/lib/docker/containers/' + c.id + '/hostname', HostsPath: '/var/lib/docker/containers/' + c.id + '/hosts', LogPath: '/var/lib/docker/containers/' + c.id + '/' + c.id + '-json.log',
       Name: '/' + c.name, RestartCount: c.state.restartCount, Driver: 'overlay2', Platform: 'linux', MountLabel: '', ProcessLabel: '', AppArmorProfile: 'docker-default', ExecIDs: null,
       HostConfig: { Binds: c.mounts.filter(m => m.type === 'bind').map(m => m.source + ':' + m.destination + (m.rw ? '' : ':ro')).concat(c.mounts.filter(m => m.type === 'volume' && !this.getVolume(m.name).anonymous).map(m => m.name + ':' + m.destination + (m.rw ? '' : ':ro'))), ContainerIDFile: '', LogConfig: { Type: 'json-file', Config: {} }, NetworkMode: c.host.network === 'bridge' ? 'default' : c.host.network, PortBindings: pb, RestartPolicy: { Name: c.host.restart.name, MaximumRetryCount: c.host.restart.max || 0 }, AutoRemove: c.host.autoRemove, Privileged: false, PublishAllPorts: c.host.publishAll, ReadonlyRootfs: false },

@@ -296,6 +296,7 @@ SUB.build = function (args, st) {
     st.err((prog === 'plain' ? renderPlain(res) : renderTty(res, f, false))); st.done(0);
   });
 };
+NS.buildRender = { renderTty, renderPlain, errorBlock };
 NS.dockerSub.buildx = (a, st) => { if (a[0] === 'build') return SUB.build(a.slice(1), st); st.err('[Docker Lab] seul « docker buildx build » est simulé.\n'); st.done(1); };
 NS.dockerImageSub = NS.dockerImageSub || null;
 

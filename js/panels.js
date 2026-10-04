@@ -25,6 +25,10 @@ NS.CHEAT = [
   ['Images et Dockerfile', [
     ['docker build -t monimage:1.0 .', 'construit une image depuis le Dockerfile du dossier'], ['docker build --no-cache -t monimage .', 'ignore le cache de couches'], ['docker build -f autre.Dockerfile -t x .', 'Dockerfile alternatif'], ['docker build --build-arg VERSION=2 -t x .', 'passe un argument ARG'],
     ['docker build --progress=plain -t x .', 'sortie détaillée'], ['docker history monimage:1.0', 'couches d\'une image'], ['docker commit web monimage:snap', 'image depuis un conteneur'], ['docker tag monimage:1.0 monimage:latest', 'ajoute un nom']]],
+  ['Docker Compose', [
+    ['docker compose up -d', 'crée et démarre tout le projet (compose.yaml)'], ['docker compose ps', 'conteneurs du projet'], ['docker compose logs -f', 'journaux de tous les services'], ['docker compose logs web', 'journaux d\'un service'],
+    ['docker compose exec web sh', 'shell dans un service'], ['docker compose config', 'fichier validé et complété'], ['docker compose stop', 'arrête (sans supprimer)'], ['docker compose start', 'redémarre'],
+    ['docker compose up -d --build', 'reconstruit les images'], ['docker compose down', 'supprime conteneurs et réseau'], ['docker compose down -v', 'supprime aussi les volumes'], ['docker compose ls', 'projets en cours']]],
   ['Nettoyage', [
     ['docker rmi nginx', 'supprime une image'], ['docker container prune', 'supprime les conteneurs arrêtés'], ['docker image prune -a', 'supprime les images inutilisées'], ['docker system df', 'espace utilisé'], ['docker system prune', 'grand nettoyage']]],
   ['Dans le terminal', [
