@@ -6,6 +6,36 @@ const { U, Shell } = NS;
 const q = a => "'" + String(a).replace(/'/g, "'\\''") + "'";
 
 /* lance le processus principal d'un conteneur (hors services scriptés) */
+
+/* mini-interpréteur de scripts : uniquement print()/console.log() de textes, variables simples et variables d'environnement */
+NS.runScript = function (lang, code, env) {
+  const vars = {}; let out = '';
+  const envGet = (k, d) => (env[k] !== undefined ? env[k] : d === undefined ? (lang === 'py' ? null : undefined) : d);
+  function str(t) { const m = /^(['"`])([\s\S]*)\1$/.exec(t.trim()); return m ? m[2] : null; }
+  function ev(e) {
+    e = e.trim(); let m;
+    if ((m = /^f(['"])([\s\S]*)\1$/.exec(e))) return m[2].replace(/\{([^}]+)\}/g, (_, x) => { const v = ev(x); return v === null || v === undefined ? 'None' : v; });
+    if (lang === 'js' && (m = /^`([\s\S]*)`$/.exec(e))) return m[1].replace(/\$\{([^}]+)\}/g, (_, x) => { const v = ev(x); return v === undefined || v === null ? 'undefined' : v; });
+    const s = str(e); if (s !== null) return s;
+    if (/^-?\d+(\.\d+)?$/.test(e)) return e;
+    if ((m = /^os\.(?:environ\.get|getenv)\(\s*(['"])(\w+)\1\s*(?:,\s*([\s\S]+?))?\)$/.exec(e))) return envGet(m[2], m[3] !== undefined ? ev(m[3]) : undefined);
+    if ((m = /^os\.environ\[\s*(['"])(\w+)\1\s*\]$/.exec(e))) return envGet(m[2]);
+    if ((m = /^process\.env\.(\w+)(?:\s*(?:\|\||\?\?)\s*([\s\S]+))?$/.exec(e))) { const v = env[m[1]]; return v !== undefined && v !== '' ? v : (m[2] !== undefined ? ev(m[2]) : undefined); }
+    if (/^\w+$/.test(e) && vars[e] !== undefined) return vars[e];
+    if (e === 'None' || e === 'null' || e === 'undefined') return null;
+    return e;
+  }
+  const splitArgs = a => { const r = []; let d = 0, q = null, cur = ''; for (const ch of a) { if (q) { cur += ch; if (ch === q) q = null; continue; } if ('\'"`'.includes(ch)) { q = ch; cur += ch; continue; } if ('([{'.includes(ch)) d++; if (')]}'.includes(ch)) d--; if (ch === ',' && d === 0) { r.push(cur); cur = ''; } else cur += ch; } if (cur.trim()) r.push(cur); return r; };
+  const lines = code.split('\n');
+  for (let raw of lines) {
+    const l = raw.trim(); if (!l || l[0] === '#' || l.startsWith('//') || /^(import|from|const\s+\w+\s*=\s*require)/.test(l)) continue;
+    let m;
+    if ((m = /^(?:print|console\.log)\((.*)\);?$/.exec(l))) { out += splitArgs(m[1]).map(a => { const v = ev(a); return v === null || v === undefined ? (lang === 'py' ? 'None' : String(v)) : v; }).join(' ') + '\n'; continue; }
+    if ((m = /^(?:(?:const|let|var)\s+)?(\w+)\s*=\s*(.+?);?$/.exec(l))) { vars[m[1]] = ev(m[2]); continue; }
+  }
+  return { out, err: '', code: 0 };
+};
+
 NS.shellLaunch = function (lab, c, eff) {
   const name = eff[0].split('/').pop(); const tok = c.runToken;
   const exit = code => { if (c.runToken === tok && c.state.status === 'running') lab._exit(c, code); };
@@ -19,7 +49,7 @@ NS.shellLaunch = function (lab, c, eff) {
       return;
     }
     if (c.config.tty && c.config.openStdin) { c.proc = { type: 'shell', handlesTerm: false, interactive: true }; return; }
-    c.proc = { type: 'proc', handlesTerm: false }; lab._sched(c, 2, () => exit(0)); return;
+    if (!(eff[1] && eff[1][0] !== '-')) { c.proc = { type: 'proc', handlesTerm: false }; lab._sched(c, 2, () => exit(0)); return; }
   }
   const ctx = NS.containerCtx(lab, c, {}); ctx.inScript = true; const sh = new Shell(lab, ctx);
   c.proc = { type: 'proc', handlesTerm: false, abort: () => sh.abort() };
@@ -80,8 +110,35 @@ NS.extraCmd = function (sh, nm, args, st) {
   }
   if (nm === 'httpd' && repo === 'httpd') { st.out('Server version: Apache/' + c.spec.version + ' (Unix)\nServer built:   Oct  4 2024 00:00:00\n'); st.done(0); return true; }
   if (nm === 'psql' && repo === 'postgres') { if (!(c.running && c.listen.includes(5432))) { st.err('psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: No such file or directory\n\tIs the server running locally and accepting connections on that socket?\n'); st.done(2); return true; } st.out('[simulateur] psql n\'est pas simulé : le serveur PostgreSQL répond bien (pg_isready).\n'); st.done(0); return true; }
-  if (nm === 'node' && repo === 'node') { if (args[0] === '-v' || args[0] === '--version') { st.out('v' + c.spec.version + '\n'); st.done(0); return true; } if (args[0] === '-e' && args[1]) { const m = /console\.log\((['"`])(.*?)\1\)/.exec(args[1]); if (m) { st.out(m[2] + '\n'); st.done(0); return true; } } st.out(''); st.done(0); return true; }
-  if ((nm === 'python' || nm === 'python3') && repo === 'python') { if (args[0] === '--version' || args[0] === '-V') { st.out('Python ' + c.spec.version + '\n'); st.done(0); return true; } if (args[0] === '-c' && args[1]) { const m = /print\((['"])(.*?)\1\)/.exec(args[1]); if (m) { st.out(m[2] + '\n'); st.done(0); return true; } } st.out(''); st.done(0); return true; }
+  if ((nm === 'node' && repo === 'node') || ((nm === 'python' || nm === 'python3') && repo === 'python')) {
+    const py = nm !== 'node';
+    if (args[0] === '-v' || args[0] === '--version' || args[0] === '-V') { st.out((py ? 'Python ' : 'v') + c.spec.version + '\n'); st.done(0); return true; }
+    let code = null, file = null;
+    if ((args[0] === '-c' && py) || (args[0] === '-e' && !py)) code = args[1] || ''; else if (args[0] && args[0][0] !== '-') file = args[0];
+    if (file) { const path = st.ctx.fs.norm(st.ctx.cwd, file); code = st.ctx.fs.read(path); if (code === null) { st.err((py ? "python: can't open file '" + path + "': [Errno 2] No such file or directory" : 'node:internal/modules/cjs/loader:1228\n  throw err;\n  ^\n\nError: Cannot find module \'' + path + '\'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1225:15)\n\nNode.js v' + c.spec.version) + '\n'); st.done(py ? 2 : 1); return true; } }
+    if (code !== null) { const r = NS.runScript(py ? 'py' : 'js', code, st.ctx.env); if (r.out) st.out(r.out); if (r.err) st.err(r.err); st.done(r.code); return true; }
+    st.done(0); return true;
+  }
+  if ((nm === 'pip' || nm === 'pip3') && repo === 'python') {
+    if (args[0] === '--version') { st.out('pip 24.2 from /usr/local/lib/python3/site-packages/pip (python ' + c.spec.version.replace(/\.\d+$/, '') + ')\n'); st.done(0); return true; }
+    if (args[0] !== 'install') { st.err('ERROR: unknown command "' + (args[0] || '') + '"\n'); st.done(1); return true; }
+    let names = args.slice(1).filter(x => x[0] !== '-' && args[args.indexOf(x) - 1] !== '-r');
+    const ri = args.indexOf('-r'); if (ri >= 0) { const t = st.ctx.fs.read(st.ctx.fs.norm(st.ctx.cwd, args[ri + 1] || '')); if (t === null) { st.err('ERROR: Could not open requirements file: [Errno 2] No such file or directory: \'' + (args[ri + 1] || '') + '\'\n'); st.done(1); return true; } names = t.split('\n').map(x => x.trim()).filter(x => x && x[0] !== '#'); }
+    const V = { flask: '3.0.3', requests: '2.32.3', numpy: '2.1.2', django: '5.1.1', pytest: '8.3.3' }; const bare = names.map(x => x.split(/[=<>~! ]/)[0].toLowerCase());
+    if (!bare.length) { st.err('ERROR: You must give at least one requirement to install (see "pip help install")\n'); st.done(1); return true; }
+    const ev = lab.wait(900 + bare.length * 500, () => { let o = ''; bare.forEach((n, i) => { const v = (names[i].split('==')[1]) || V[n] || '1.0.0'; o += 'Collecting ' + names[i] + '\n  Downloading ' + n + '-' + v + '-py3-none-any.whl (' + (80 + i * 17) + ' kB)\n'; c.pkgs['pip:' + n] = true; });
+      o += 'Installing collected packages: ' + bare.join(', ') + '\nSuccessfully installed ' + bare.map((n, i) => n + '-' + ((names[i].split('==')[1]) || V[n] || '1.0.0')).join(' ') + '\n'; if (!c.runningBuild) o += '\n[notice] A new release of pip is available: 24.2 -> 24.3.1\n[notice] To update, run: pip install --upgrade pip\n'; st.out(o); st.done(0); });
+    st.onAbort(() => { lab.clock.cancel(ev); st.done(130); }); return true;
+  }
+  if ((nm === 'npm' || nm === 'npx') && repo === 'node') {
+    if (args[0] === '--version' || args[0] === '-v') { st.out('10.8.3\n'); st.done(0); return true; }
+    if (!['install', 'i', 'ci'].includes(args[0])) { st.err('npm error [Docker Lab] seule « npm install » est simulée\n'); st.done(1); return true; }
+    let names = args.slice(1).filter(x => x[0] !== '-');
+    if (!names.length) { const pj = st.ctx.fs.read(st.ctx.fs.norm(st.ctx.cwd, 'package.json')); if (pj === null) { st.err('npm error code ENOENT\nnpm error syscall open\nnpm error path ' + st.ctx.fs.norm(st.ctx.cwd, 'package.json') + '\nnpm error errno -2\nnpm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open \'' + st.ctx.fs.norm(st.ctx.cwd, 'package.json') + '\'\n'); st.done(254); return true; } try { names = Object.keys(JSON.parse(pj).dependencies || {}); } catch (e) { st.err('npm error code EJSONPARSE\nnpm error JSON.parse Invalid package.json\n'); st.done(1); return true; } }
+    const n = names.length * 3 + (names.length ? 2 : 0);
+    const ev = lab.wait(1200 + names.length * 600, () => { names.forEach(x => { c.pkgs['npm:' + x] = true; }); st.ctx.fs.mkdirp(st.ctx.fs.norm(st.ctx.cwd, 'node_modules')); st.out('\nadded ' + n + ' packages, and audited ' + (n + 1) + ' packages in ' + (1 + names.length) + 's\n\nfound 0 vulnerabilities\n'); st.done(0); });
+    st.onAbort(() => { lab.clock.cancel(ev); st.done(130); }); return true;
+  }
   return false;
 };
 })(typeof window !== 'undefined' ? window : globalThis);

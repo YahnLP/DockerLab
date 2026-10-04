@@ -22,6 +22,9 @@ NS.CHEAT = [
   ['Réseaux', [
     ['docker network ls', 'liste les réseaux'], ['docker network create mon-reseau', 'réseau bridge personnalisé'], ['docker run -d --name api --network mon-reseau nginx', 'attache au réseau'], ['docker network inspect mon-reseau', 'détails (sous-réseau, conteneurs)'],
     ['docker network connect mon-reseau web', 'branche un conteneur existant'], ['docker network disconnect mon-reseau web', 'débranche'], ['docker run --rm --network mon-reseau alpine ping -c 2 api', 'résolution par nom']]],
+  ['Images et Dockerfile', [
+    ['docker build -t monimage:1.0 .', 'construit une image depuis le Dockerfile du dossier'], ['docker build --no-cache -t monimage .', 'ignore le cache de couches'], ['docker build -f autre.Dockerfile -t x .', 'Dockerfile alternatif'], ['docker build --build-arg VERSION=2 -t x .', 'passe un argument ARG'],
+    ['docker build --progress=plain -t x .', 'sortie détaillée'], ['docker history monimage:1.0', 'couches d\'une image'], ['docker commit web monimage:snap', 'image depuis un conteneur'], ['docker tag monimage:1.0 monimage:latest', 'ajoute un nom']]],
   ['Nettoyage', [
     ['docker rmi nginx', 'supprime une image'], ['docker container prune', 'supprime les conteneurs arrêtés'], ['docker image prune -a', 'supprime les images inutilisées'], ['docker system df', 'espace utilisé'], ['docker system prune', 'grand nettoyage']]],
   ['Dans le terminal', [

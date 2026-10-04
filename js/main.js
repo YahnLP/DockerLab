@@ -132,16 +132,41 @@ function startScenario(sc, force) {
   const go = () => { try { mount(freshLab(sc), sc); } catch (e) { ui.toast('Erreur de construction du TP : ' + e.message, 'err'); console.error(e); return; } showRight('tp'); autosave(); ui.toast('TP chargé : ' + sc.title, 'ok'); };
   if (!force && lab.journal.length) ui.confirmBox('Charger un TP', 'Le laboratoire actuel sera remplacé. Continuer ?', go); else go();
 }
+function tpBody(sc) {
+  if (!sc.parts) return [h('h4', 'Déroulé'), h('ol', (sc.steps || []).map(s => h('li', { html: s })))];
+  let n = 0; const out = [];
+  sc.parts.forEach((p, pi) => {
+    out.push(h('div.tpart', h('h4.ptitle', 'Partie ' + (pi + 1) + ' — ' + p.title),
+      h('details.course', { open: true }, h('summary', '📘 Apport de cours'), (p.course || []).map(c => h('p', { html: c }))),
+      p.steps.map(st => { n++;
+        return h('div.tstep', h('div.sn', 'Étape ' + n), h('div.st', { html: st.t }),
+          st.why ? h('div.why', h('b', 'Pourquoi ? '), h('span', { html: st.why })) : null,
+          st.see ? h('div.see', h('b', 'Vous devriez voir : '), h('span', { html: st.see })) : null,
+          st.opts && st.opts.length ? h('details.opts', h('summary', 'Décryptage de la commande'), h('ul', st.opts.map(o => h('li', h('code', o[0]), ' : ', h('span', { html: o[1] }))))) : null);
+      })));
+  });
+  if (sc.recap && sc.recap.length) out.push(h('div.recap', h('h4', '🎯 À retenir'), h('ul', sc.recap.map(r => h('li', { html: r })))));
+  return out;
+}
 function renderTp() {
   const box = $('#tppane'); clear(box); const sc = currentTp;
-  if (!sc) { box.appendChild(h('div', h('h3', 'Aucun TP chargé'), h('p.muted', 'Utilisez « TP d\'exemple » en haut de l\'écran pour charger un sujet avec son état de départ, ses étapes, une correction et des vérifications automatiques.'))); return; }
+  if (!sc) { box.appendChild(h('div', h('h3', 'Aucun TP chargé'), h('p.muted', 'Utilisez « TP d\'exemple » en haut de l\'écran pour charger un sujet avec son cours, ses étapes expliquées, une correction et des vérifications automatiques.'))); return; }
   const res = h('div.tpres');
-  box.appendChild(h('div.tp', h('h3', sc.title), h('span.lvl', sc.level + ' · ' + sc.duration + ' · ' + diffText(sc.diff)), h('p', sc.desc),
-    h('h4', 'Objectifs'), h('ul', sc.objectives.map(o => h('li', o))), h('h4', 'Déroulé'), h('ol', sc.steps.map(s => h('li', { html: s }))),
+  const wide = h('button.small', { title: 'Élargir / réduire le volet', onclick: () => { const r = $('#right'); r.classList.toggle('wide'); try { localStorage.setItem('dockerlab.wide', r.classList.contains('wide') ? '1' : ''); } catch (e) { } } }, '↔ Élargir');
+  box.appendChild(h('div.tp', h('h3', sc.title), h('span.lvl', sc.level + ' · ' + sc.duration + ' · ' + diffText(sc.diff)), ' ', wide, h('p', sc.desc),
+    h('h4', 'Objectifs'), h('ul', sc.objectives.map(o => h('li', o))), ...tpBody(sc),
+    h('p.small.muted', '💡 Cliquez sur une commande du sujet pour l\'écrire dans le terminal (Maj+clic : l\'exécuter).'),
     h('div.btns', h('button.primary', { onclick: () => { res.textContent = 'Vérification en cours…'; setTimeout(() => runChecks(sc, res), 20); } }, '✔ Vérifier mon travail'),
       sc.solve ? h('button', { onclick: () => ui.confirmBox('Correction', 'Appliquer la correction ? Elle sera exécutée dans le terminal à votre place.', () => { sc.solve(lab, termApi()); ui.toast('Correction appliquée', 'ok'); }) }, 'Charger la correction') : null,
       h('button', { onclick: () => ui.confirmBox('Recommencer', 'Repartir de l\'état de départ du TP ? Votre travail sera perdu.', () => startScenario(sc, true)) }, 'Recommencer')), res));
 }
+try { if (localStorage.getItem('dockerlab.wide')) $('#right').classList.add('wide'); } catch (e) { }
+/* les commandes du sujet (balises <code>) s'insèrent dans le terminal d'un clic */
+$('#tppane').addEventListener('click', e => {
+  const c = e.target.closest && e.target.closest('code'); if (!c || !c.closest('.tp') || c.closest('.btns')) return;
+  const t = c.textContent.trim(); if (!/^[a-z~./]/.test(t) || window.getSelection().toString()) return;
+  const tm = termApi(); if (!tm) return; dockShow('term'); if (e.shiftKey) tm.runLines(t); else tm.insert(t);
+});
 function runChecks(sc, res) {
   clear(res); const c = NS.checker(lab); let okN = 0;
   sc.checks.forEach(k => { let ok = false; try { ok = !!k.run(c); } catch (e) { console.error(e); } if (ok) okN++; res.appendChild(h('div.check', { style: { borderColor: ok ? '#86efac' : '#fca5a5' } }, (ok ? '✔ ' : '✖ ') + k.label)); });

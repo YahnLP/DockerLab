@@ -33,3 +33,16 @@
 
 #dock{height:36vh;min-height:250px}
 .term{font-size:12.5px}
+.tp code{cursor:pointer}.tp code:hover{background:#dbeafe}
+#right.wide{width:560px}
+.tp .tpart{margin:12px 0;border-top:2px solid #c7d2fe;padding-top:4px}
+.tp .ptitle{color:#3730a3;margin:6px 0}
+.tp details.course{background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid #3b82f6;border-radius:6px;padding:4px 10px;margin:6px 0;font-size:12.5px;line-height:1.5}
+.tp details.course summary,.tp details.opts summary{cursor:pointer;font-weight:600}
+.tp .tstep{border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:8px 0;background:#fff}
+.tp .tstep .sn{font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase}
+.tp .tstep .st{margin:2px 0;line-height:1.5}
+.tp .tstep .why{background:#fefce8;border-left:3px solid #eab308;padding:3px 7px;margin:4px 0;font-size:12px}
+.tp .tstep .see{background:#f0fdf4;border-left:3px solid #22c55e;padding:3px 7px;margin:4px 0;font-size:12px}
+.tp details.opts{font-size:12px;margin-top:4px}.tp details.opts ul{margin:4px 0;padding-left:16px}
+.tp .recap{background:#faf5ff;border:1px solid #e9d5ff;border-left:4px solid #a855f7;border-radius:6px;padding:4px 10px;margin:10px 0;font-size:12.5px}

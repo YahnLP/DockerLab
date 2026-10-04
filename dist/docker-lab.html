@@ -6,6 +6,7 @@
 <title>Docker Lab — simulateur Docker pour apprendre dans le navigateur</title>
 <meta name="author" content="Yahn LE PRETTRE - Formaxion Landes">
 <meta name="description" content="Simulateur Docker 100 % navigateur : terminal, vue graphique, TP guidés. Aucune installation, aucun serveur.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%90%B3%3C/text%3E%3C/svg%3E">
 <style>
 :root{--bg:#eef1f5;--panel:#fff;--ink:#1e293b;--muted:#64748b;--line:#d5dbe4;--brand:#1d4ed8;--brand2:#e0e9ff;--ok:#15803d;--warn:#b45309;--err:#b91c1c;--top:#0f172a;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
 *{box-sizing:border-box}
@@ -179,6 +180,22 @@ fieldset{border:1px solid var(--line);border-radius:6px;padding:6px 10px 10px}le
 .cmd:hover{background:#f1f5f9;border-color:var(--line)}.cmd small{display:block;font-family:system-ui,sans-serif;color:var(--muted);font-size:11px}
 .insp-btns button{font-size:12px}
 .pill{display:inline-block;border-radius:10px;padding:0 8px;font-size:11px;color:#fff}.pill.running{background:#16a34a}.pill.exited{background:#64748b}.pill.created{background:#d97706}.pill.paused{background:#2563eb}.pill.restarting{background:#dc2626}
+
+#dock{height:36vh;min-height:250px}
+.term{font-size:12.5px}
+.tp code{cursor:pointer}.tp code:hover{background:#dbeafe}
+#right.wide{width:560px}
+.tp .tpart{margin:12px 0;border-top:2px solid #c7d2fe;padding-top:4px}
+.tp .ptitle{color:#3730a3;margin:6px 0}
+.tp details.course{background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid #3b82f6;border-radius:6px;padding:4px 10px;margin:6px 0;font-size:12.5px;line-height:1.5}
+.tp details.course summary,.tp details.opts summary{cursor:pointer;font-weight:600}
+.tp .tstep{border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:8px 0;background:#fff}
+.tp .tstep .sn{font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase}
+.tp .tstep .st{margin:2px 0;line-height:1.5}
+.tp .tstep .why{background:#fefce8;border-left:3px solid #eab308;padding:3px 7px;margin:4px 0;font-size:12px}
+.tp .tstep .see{background:#f0fdf4;border-left:3px solid #22c55e;padding:3px 7px;margin:4px 0;font-size:12px}
+.tp details.opts{font-size:12px;margin-top:4px}.tp details.opts ul{margin:4px 0;padding-left:16px}
+.tp .recap{background:#faf5ff;border:1px solid #e9d5ff;border-left:4px solid #a855f7;border-radius:6px;padding:4px 10px;margin:10px 0;font-size:12.5px}
 
 </style>
 </head>
@@ -959,7 +976,7 @@ class Lab {
       id, name, imageId: img.id, imageRef: o.image, spec: img.spec, config, created: this.clock.now,
       host: { ports, publishAll: !!o.publishAll, restart: o.restart || { name: 'no', max: 0 }, autoRemove: !!o.autoRemove, network: netName, binds: [] },
       state: { status: 'created', exitCode: 0, startedAt: null, finishedAt: null, error: '', pid: 0, restartCount: 0, oomKilled: false },
-      nets: {}, logs: [], mounts: [], fs: new VFS(VFS.clone(img.fs)), listen: [], timers: [], runToken: 0, subs: [], hits: 0, redis: null, procs: [], manualStop: false, pkgs: {},
+      nets: {}, logs: [], mounts: [], fs: new VFS(VFS.clone(img.fs)), listen: [], timers: [], runToken: 0, subs: [], hits: 0, redis: null, procs: [], manualStop: false, pkgs: Object.assign({}, img.pkgs || {}),
     });
     c.fs.home = img.os === 'scratch' ? '/' : '/root';
     this._mounts(c, img, o.mounts || []);
@@ -1171,7 +1188,7 @@ class Lab {
   }
   inspectImage(i) {
     const c = i.config; return {
-      Id: 'sha256:' + i.id, RepoTags: i.refs.map(r => r.repo + ':' + r.tag), RepoDigests: i.refs.map(r => r.repo + '@' + i.digest), Parent: '', Comment: '', Created: U.iso(this.epoch + i.created), DockerVersion: '27.3.1', Author: '', Architecture: 'amd64', Os: 'linux', Size: i.size, VirtualSize: i.size,
+      Id: 'sha256:' + i.id, RepoTags: i.refs.map(r => r.repo + ':' + r.tag), RepoDigests: i.local ? [] : i.refs.map(r => r.repo + '@' + i.digest), Parent: '', Comment: '', Created: U.iso(this.epoch + i.created), DockerVersion: '27.3.1', Author: '', Architecture: 'amd64', Os: 'linux', Size: i.size, VirtualSize: i.size,
       Config: { Hostname: '', User: c.user || '', ExposedPorts: (c.exposed || []).reduce((a, k) => { a[k] = {}; return a; }, {}), Env: c.env, Cmd: c.cmd, WorkingDir: c.workdir || '', Entrypoint: c.entrypoint.length ? c.entrypoint : null, Labels: null, StopSignal: c.stopSignal },
       GraphDriver: { Data: {}, Name: 'overlay2' }, RootFS: { Type: 'layers', Layers: i.layers.map(l => 'sha256:' + U.hexOf('full' + l.id, 64)) }, Metadata: { LastTagTime: '0001-01-01T00:00:00Z' },
     };
@@ -1426,14 +1443,14 @@ class Shell {
   runCommand(name, args, st) {
     const ctx = this.ctx; const bn = name.includes('/') ? name.split('/').pop() : name;
     if (name.includes('/') && !ctx.fs.isFile(ctx.fs.norm(ctx.cwd, name)) && !(['/bin/sh', '/bin/bash', '/bin/ash', '/bin/ls', '/bin/cat', '/bin/echo', '/usr/bin/env', '/bin/sleep', '/bin/ping', '/usr/bin/curl'].includes(name))) { if (ctx.fs.isDir(ctx.fs.norm(ctx.cwd, name))) return st.fail((ctx.style === 'bb' ? 'sh: ' : 'bash: ') + name + ': Is a directory', 126); return st.fail((ctx.style === 'bb' ? 'sh: ' : 'bash: ') + name + ': ' + (ctx.style === 'bb' ? 'not found' : 'No such file or directory'), 127); }
-    if (ctx.kind === 'container' && name.startsWith('./')) return st.fail('sh: ' + name + ': Permission denied', 126);
+    if (ctx.kind === 'container' && /^\.?\.?\//.test(name) && !name.startsWith('/bin/') && !name.startsWith('/usr/')) { const fp = ctx.fs.norm(ctx.cwd, name); const nd = ctx.fs.get(fp); if (nd && nd.t === 'f' && nd.x) return CMDS.sh.f([fp], st); return st.fail((ctx.style === 'bb' ? 'sh: ' : 'bash: ') + name + ': Permission denied', 126); }
     const nm = (ctx.kind === 'host' || ctx.style === 'bb' || true) ? bn : name;
     if (!available(ctx, nm)) {
       if (ctx.kind === 'container' && ctx.container && NS.extraCmd && NS.extraCmd(this, nm, args, st)) return;
       const interactive = ctx.tty;
       return st.fail(ctx.style === 'bb' ? (st.ctx.inScript ? 'sh: ' : '/bin/sh: ') + nm + ': not found' : (ctx.kind === 'host' ? nm + ': command not found' : 'bash: ' + (st.ctx.inScript ? 'line 1: ' : '') + nm + ': command not found'), 127);
     }
-    const d = CMDS[nm];
+    const d = CMDS[nm]; st.cmdName = nm;
     try { d.f(args, st); } catch (e) { st.err((e && e.message ? e.message : String(e)) + '\n'); st.done(1); }
   }
 }
@@ -1453,6 +1470,20 @@ const abs = (st, p) => st.ctx.fs.norm(st.ctx.cwd, p);
 const defn = (names, f, extra) => { [].concat(names).forEach(n => { CMDS[n] = Object.assign({ f }, extra || {}); }); };
 const optsOf = (args, spec) => { const o = {}; const rest = []; let end = false; for (const a of args) { if (end || a === '-' || a[0] !== '-' || a.length < 2) { rest.push(a); continue; } if (a === '--') { end = true; continue; } if (a.startsWith('--')) { o[a.slice(2)] = true; continue; } for (const ch of a.slice(1)) o[ch] = true; } return { o, rest }; };
 
+defn('printf', (args, st) => {
+  if (!args.length) return st.fail('printf: usage: printf [-v var] format [arguments]', 2);
+  const un = t => t.replace(/\\([nt\\"']|0[0-7]{0,2}|x[0-9a-fA-F]{1,2})/g, (m, c) => c === 'n' ? '\n' : c === 't' ? '\t' : c === '\\' ? '\\' : c === '"' ? '"' : c === "'" ? "'" : c[0] === 'x' ? String.fromCharCode(parseInt(c.slice(1), 16)) : String.fromCharCode(parseInt(c, 8) || 0));
+  const fmt = args[0]; let rest = args.slice(1); let out = '';
+  do { let used = false; out += fmt.replace(/%(%|-?\d*s|d|i)/g, (m, c) => { if (c === '%') return '%'; used = true; const v = rest.length ? rest.shift() : ''; if (c === 'd' || c === 'i') return String(parseInt(v, 10) || 0); const w = parseInt(c, 10); const t = String(v); return isNaN(w) ? t : (c[0] === '-' ? t.padEnd(-w) : t.padStart(w)); }).replace(/\\([nt\\"']|0[0-7]{0,2}|x[0-9a-fA-F]{1,2})/g, (m, c) => un(m)); if (!used) break; } while (rest.length);
+  st.out(out); st.done(0);
+});
+defn(['chmod', 'chown', 'chgrp'], (args, st) => {
+  const nm = st.cmdName || 'chmod'; const rest = args.filter(a => !/^-[Rrfv]+$/.test(a)); if (rest.length < 2) return st.fail(nm + ": missing operand" + (rest.length ? " after '" + rest[0] + "'" : ''), 1);
+  let code = 0; rest.slice(1).forEach(a => { const p = abs(st, a); if (!st.ctx.fs.exists(p)) { st.err((st.ctx.style === 'bb' ? nm + ": " + a + ': No such file or directory' : nm + ": cannot access '" + a + "': No such file or directory") + '\n'); code = 1; } else if (nm === 'chmod' && !NS.canWrite(st.ctx, p) === false && (/^[0-7]*[1357]$|\+x|a\+x|u\+x/.test(rest[0]) ? (st.ctx.fs.get(p).x = true) : (/^[0-7]+$|-x/.test(rest[0]) ? (st.ctx.fs.get(p).x = false) : 0), false)) { /* mode appliqué */ } else if (!NS.canWrite(st.ctx, p)) { st.err(nm + ": changing permissions of '" + a + "': " + (st.ctx.fs.isRo && st.ctx.fs.isRo(p) ? 'Read-only file system' : 'Operation not permitted') + '\n'); code = 1; } });
+  st.done(code);
+});
+defn('ln', (args, st) => { const r = args.filter(a => a[0] !== '-'); if (r.length < 2) return st.fail('ln: missing file operand', 1); const t = abs(st, r[1]); if (st.ctx.fs.exists(t)) return st.fail("ln: failed to create symbolic link '" + r[1] + "': File exists", 1); st.ctx.fs.write(t, st.ctx.fs.read(abs(st, r[0])) || ''); st.done(0); });
+defn(['adduser', 'addgroup', 'useradd', 'groupadd'], (args, st) => { const nmA = args.filter(a => a[0] !== '-' && !/^\d+$/.test(a)).pop(); if (!nmA) return st.fail('Usage: adduser [OPTIONS] USER [GROUP]', 1); const f = st.ctx.fs; const pw = f.read('/etc/passwd') || ''; if (new RegExp('^' + nmA + ':', 'm').test(pw) && /user/.test(st.cmdName || 'adduser')) return st.fail((st.ctx.style === 'bb' ? 'adduser: user \'' + nmA + '\' in use' : "useradd: user '" + nmA + "' already exists"), st.ctx.style === 'bb' ? 1 : 9); if (!/group/.test(st.cmdName || '')) f.write('/etc/passwd', pw + nmA + ':x:' + (1000 + pw.split('\n').length) + ':' + (1000 + pw.split('\n').length) + '::/home/' + nmA + ':/bin/sh\n'); st.done(0); });
 defn('echo', (args, st) => { let nl = true, esc = false; while (args[0] && /^-[neE]+$/.test(args[0])) { if (args[0].includes('n')) nl = false; if (args[0].includes('e')) esc = true; args = args.slice(1); } let s = args.join(' '); if (esc) s = s.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\\\/g, '\\'); st.out(s + (nl ? '\n' : '')); st.done(0); });
 defn('true', (a, st) => st.done(0)); defn('false', (a, st) => st.done(1));
 defn('pwd', (a, st) => { st.out(st.ctx.cwd + '\n'); st.done(0); });
@@ -1538,6 +1569,7 @@ defn('curl', (args, st) => {
     else if (a[0] === '-' && a.length > 1 && a[1] !== '-') { for (const ch of a.slice(1)) { if (ch === 's') o.s = true; else if (ch === 'S') o.S = true; else if (ch === 'I') o.I = true; else if (ch === 'i') o.i = true; else if (ch === 'v') o.v = true; else if (ch === 'f') o.f = true; } }
     else if (a[0] !== '-') url = a;
   }
+  if (o.V || o.version || args.includes('--version')) { st.out('curl 8.5.0 (x86_64-pc-linux-gnu) libcurl/8.5.0 OpenSSL/3.0.13 zlib/1.3\nRelease-Date: 2023-12-06\nProtocols: dict file ftp ftps gopher gophers http https imap imaps ldap ldaps mqtt pop3 pop3s rtmp rtsp scp sftp smb smbs smtp smtps telnet tftp\nFeatures: alt-svc AsynchDNS HSTS HTTPS-proxy IPv6 Largefile NTLM SSL threadsafe TLS-SRP UnixSockets\n'); return st.done(0); }
   if (!url) return st.fail('curl: try \'curl --help\' or \'curl --manual\' for more information', 2);
   const method = o.I ? 'HEAD' : o.X;
   const r = st.lab.httpFetch(st.ctx.container, url, { method, ua: 'curl/8.5.0' });
@@ -1681,6 +1713,36 @@ const { U, Shell } = NS;
 const q = a => "'" + String(a).replace(/'/g, "'\\''") + "'";
 
 /* lance le processus principal d'un conteneur (hors services scriptés) */
+
+/* mini-interpréteur de scripts : uniquement print()/console.log() de textes, variables simples et variables d'environnement */
+NS.runScript = function (lang, code, env) {
+  const vars = {}; let out = '';
+  const envGet = (k, d) => (env[k] !== undefined ? env[k] : d === undefined ? (lang === 'py' ? null : undefined) : d);
+  function str(t) { const m = /^(['"`])([\s\S]*)\1$/.exec(t.trim()); return m ? m[2] : null; }
+  function ev(e) {
+    e = e.trim(); let m;
+    if ((m = /^f(['"])([\s\S]*)\1$/.exec(e))) return m[2].replace(/\{([^}]+)\}/g, (_, x) => { const v = ev(x); return v === null || v === undefined ? 'None' : v; });
+    if (lang === 'js' && (m = /^`([\s\S]*)`$/.exec(e))) return m[1].replace(/\$\{([^}]+)\}/g, (_, x) => { const v = ev(x); return v === undefined || v === null ? 'undefined' : v; });
+    const s = str(e); if (s !== null) return s;
+    if (/^-?\d+(\.\d+)?$/.test(e)) return e;
+    if ((m = /^os\.(?:environ\.get|getenv)\(\s*(['"])(\w+)\1\s*(?:,\s*([\s\S]+?))?\)$/.exec(e))) return envGet(m[2], m[3] !== undefined ? ev(m[3]) : undefined);
+    if ((m = /^os\.environ\[\s*(['"])(\w+)\1\s*\]$/.exec(e))) return envGet(m[2]);
+    if ((m = /^process\.env\.(\w+)(?:\s*(?:\|\||\?\?)\s*([\s\S]+))?$/.exec(e))) { const v = env[m[1]]; return v !== undefined && v !== '' ? v : (m[2] !== undefined ? ev(m[2]) : undefined); }
+    if (/^\w+$/.test(e) && vars[e] !== undefined) return vars[e];
+    if (e === 'None' || e === 'null' || e === 'undefined') return null;
+    return e;
+  }
+  const splitArgs = a => { const r = []; let d = 0, q = null, cur = ''; for (const ch of a) { if (q) { cur += ch; if (ch === q) q = null; continue; } if ('\'"`'.includes(ch)) { q = ch; cur += ch; continue; } if ('([{'.includes(ch)) d++; if (')]}'.includes(ch)) d--; if (ch === ',' && d === 0) { r.push(cur); cur = ''; } else cur += ch; } if (cur.trim()) r.push(cur); return r; };
+  const lines = code.split('\n');
+  for (let raw of lines) {
+    const l = raw.trim(); if (!l || l[0] === '#' || l.startsWith('//') || /^(import|from|const\s+\w+\s*=\s*require)/.test(l)) continue;
+    let m;
+    if ((m = /^(?:print|console\.log)\((.*)\);?$/.exec(l))) { out += splitArgs(m[1]).map(a => { const v = ev(a); return v === null || v === undefined ? (lang === 'py' ? 'None' : String(v)) : v; }).join(' ') + '\n'; continue; }
+    if ((m = /^(?:(?:const|let|var)\s+)?(\w+)\s*=\s*(.+?);?$/.exec(l))) { vars[m[1]] = ev(m[2]); continue; }
+  }
+  return { out, err: '', code: 0 };
+};
+
 NS.shellLaunch = function (lab, c, eff) {
   const name = eff[0].split('/').pop(); const tok = c.runToken;
   const exit = code => { if (c.runToken === tok && c.state.status === 'running') lab._exit(c, code); };
@@ -1694,7 +1756,7 @@ NS.shellLaunch = function (lab, c, eff) {
       return;
     }
     if (c.config.tty && c.config.openStdin) { c.proc = { type: 'shell', handlesTerm: false, interactive: true }; return; }
-    c.proc = { type: 'proc', handlesTerm: false }; lab._sched(c, 2, () => exit(0)); return;
+    if (!(eff[1] && eff[1][0] !== '-')) { c.proc = { type: 'proc', handlesTerm: false }; lab._sched(c, 2, () => exit(0)); return; }
   }
   const ctx = NS.containerCtx(lab, c, {}); ctx.inScript = true; const sh = new Shell(lab, ctx);
   c.proc = { type: 'proc', handlesTerm: false, abort: () => sh.abort() };
@@ -1755,8 +1817,35 @@ NS.extraCmd = function (sh, nm, args, st) {
   }
   if (nm === 'httpd' && repo === 'httpd') { st.out('Server version: Apache/' + c.spec.version + ' (Unix)\nServer built:   Oct  4 2024 00:00:00\n'); st.done(0); return true; }
   if (nm === 'psql' && repo === 'postgres') { if (!(c.running && c.listen.includes(5432))) { st.err('psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: No such file or directory\n\tIs the server running locally and accepting connections on that socket?\n'); st.done(2); return true; } st.out('[simulateur] psql n\'est pas simulé : le serveur PostgreSQL répond bien (pg_isready).\n'); st.done(0); return true; }
-  if (nm === 'node' && repo === 'node') { if (args[0] === '-v' || args[0] === '--version') { st.out('v' + c.spec.version + '\n'); st.done(0); return true; } if (args[0] === '-e' && args[1]) { const m = /console\.log\((['"`])(.*?)\1\)/.exec(args[1]); if (m) { st.out(m[2] + '\n'); st.done(0); return true; } } st.out(''); st.done(0); return true; }
-  if ((nm === 'python' || nm === 'python3') && repo === 'python') { if (args[0] === '--version' || args[0] === '-V') { st.out('Python ' + c.spec.version + '\n'); st.done(0); return true; } if (args[0] === '-c' && args[1]) { const m = /print\((['"])(.*?)\1\)/.exec(args[1]); if (m) { st.out(m[2] + '\n'); st.done(0); return true; } } st.out(''); st.done(0); return true; }
+  if ((nm === 'node' && repo === 'node') || ((nm === 'python' || nm === 'python3') && repo === 'python')) {
+    const py = nm !== 'node';
+    if (args[0] === '-v' || args[0] === '--version' || args[0] === '-V') { st.out((py ? 'Python ' : 'v') + c.spec.version + '\n'); st.done(0); return true; }
+    let code = null, file = null;
+    if ((args[0] === '-c' && py) || (args[0] === '-e' && !py)) code = args[1] || ''; else if (args[0] && args[0][0] !== '-') file = args[0];
+    if (file) { const path = st.ctx.fs.norm(st.ctx.cwd, file); code = st.ctx.fs.read(path); if (code === null) { st.err((py ? "python: can't open file '" + path + "': [Errno 2] No such file or directory" : 'node:internal/modules/cjs/loader:1228\n  throw err;\n  ^\n\nError: Cannot find module \'' + path + '\'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1225:15)\n\nNode.js v' + c.spec.version) + '\n'); st.done(py ? 2 : 1); return true; } }
+    if (code !== null) { const r = NS.runScript(py ? 'py' : 'js', code, st.ctx.env); if (r.out) st.out(r.out); if (r.err) st.err(r.err); st.done(r.code); return true; }
+    st.done(0); return true;
+  }
+  if ((nm === 'pip' || nm === 'pip3') && repo === 'python') {
+    if (args[0] === '--version') { st.out('pip 24.2 from /usr/local/lib/python3/site-packages/pip (python ' + c.spec.version.replace(/\.\d+$/, '') + ')\n'); st.done(0); return true; }
+    if (args[0] !== 'install') { st.err('ERROR: unknown command "' + (args[0] || '') + '"\n'); st.done(1); return true; }
+    let names = args.slice(1).filter(x => x[0] !== '-' && args[args.indexOf(x) - 1] !== '-r');
+    const ri = args.indexOf('-r'); if (ri >= 0) { const t = st.ctx.fs.read(st.ctx.fs.norm(st.ctx.cwd, args[ri + 1] || '')); if (t === null) { st.err('ERROR: Could not open requirements file: [Errno 2] No such file or directory: \'' + (args[ri + 1] || '') + '\'\n'); st.done(1); return true; } names = t.split('\n').map(x => x.trim()).filter(x => x && x[0] !== '#'); }
+    const V = { flask: '3.0.3', requests: '2.32.3', numpy: '2.1.2', django: '5.1.1', pytest: '8.3.3' }; const bare = names.map(x => x.split(/[=<>~! ]/)[0].toLowerCase());
+    if (!bare.length) { st.err('ERROR: You must give at least one requirement to install (see "pip help install")\n'); st.done(1); return true; }
+    const ev = lab.wait(900 + bare.length * 500, () => { let o = ''; bare.forEach((n, i) => { const v = (names[i].split('==')[1]) || V[n] || '1.0.0'; o += 'Collecting ' + names[i] + '\n  Downloading ' + n + '-' + v + '-py3-none-any.whl (' + (80 + i * 17) + ' kB)\n'; c.pkgs['pip:' + n] = true; });
+      o += 'Installing collected packages: ' + bare.join(', ') + '\nSuccessfully installed ' + bare.map((n, i) => n + '-' + ((names[i].split('==')[1]) || V[n] || '1.0.0')).join(' ') + '\n'; if (!c.runningBuild) o += '\n[notice] A new release of pip is available: 24.2 -> 24.3.1\n[notice] To update, run: pip install --upgrade pip\n'; st.out(o); st.done(0); });
+    st.onAbort(() => { lab.clock.cancel(ev); st.done(130); }); return true;
+  }
+  if ((nm === 'npm' || nm === 'npx') && repo === 'node') {
+    if (args[0] === '--version' || args[0] === '-v') { st.out('10.8.3\n'); st.done(0); return true; }
+    if (!['install', 'i', 'ci'].includes(args[0])) { st.err('npm error [Docker Lab] seule « npm install » est simulée\n'); st.done(1); return true; }
+    let names = args.slice(1).filter(x => x[0] !== '-');
+    if (!names.length) { const pj = st.ctx.fs.read(st.ctx.fs.norm(st.ctx.cwd, 'package.json')); if (pj === null) { st.err('npm error code ENOENT\nnpm error syscall open\nnpm error path ' + st.ctx.fs.norm(st.ctx.cwd, 'package.json') + '\nnpm error errno -2\nnpm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open \'' + st.ctx.fs.norm(st.ctx.cwd, 'package.json') + '\'\n'); st.done(254); return true; } try { names = Object.keys(JSON.parse(pj).dependencies || {}); } catch (e) { st.err('npm error code EJSONPARSE\nnpm error JSON.parse Invalid package.json\n'); st.done(1); return true; } }
+    const n = names.length * 3 + (names.length ? 2 : 0);
+    const ev = lab.wait(1200 + names.length * 600, () => { names.forEach(x => { c.pkgs['npm:' + x] = true; }); st.ctx.fs.mkdirp(st.ctx.fs.norm(st.ctx.cwd, 'node_modules')); st.out('\nadded ' + n + ' packages, and audited ' + (n + 1) + ' packages in ' + (1 + names.length) + 's\n\nfound 0 vulnerabilities\n'); st.done(0); });
+    st.onAbort(() => { lab.clock.cancel(ev); st.done(130); }); return true;
+  }
   return false;
 };
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -2278,7 +2367,8 @@ function pruneImages(st, all) {
 const IMG = {
   ls: SUB.images, list: SUB.images, pull: SUB.pull, rm: SUB.rmi, remove: SUB.rmi, tag: SUB.tag, inspect: SUB.inspect,
   prune(args, st) { const { f } = parseFlags(args, ['force|f:b', 'all|a:b', 'filter:l'], false, 'image prune'); confirm(st, f, 'WARNING! This will remove ' + (f.all ? 'all images without at least one container associated to them.' : 'all dangling images.'), () => { const o = pruneImages(st, !!f.all); st.out((o.length ? 'Deleted Images:\n' + o.join('\n') + '\n\n' : '') + 'Total reclaimed space: 0B\n'); st.done(0); }); },
-  history(args, st) { const i = st.lab.findImage(args[0] || ''); if (!i) { dErr(st, new DockerError('No such image: ' + args[0])); return st.done(1); } st.out(U.table([['IMAGE', 'CREATED', 'CREATED BY', 'SIZE', 'COMMENT']].concat(i.layers.slice().reverse().map((l, k) => [k === 0 ? i.id.slice(0, 12) : '<missing>', U.humanDuration(st.lab.clock.now - i.created) + ' ago', '/bin/sh -c #(nop) layer ' + (i.layers.length - k), U.humanSize(l.size), '']))) ); st.done(0); },
+  history(args, st) { return SUB.history(args, st); },
+  build(args, st) { return SUB.build(args, st); },
 };
 SUB.image = (a, st) => sub(IMG, a[0], a.slice(1), st, 'image');
 const CON = { ls: SUB.ps, list: SUB.ps, ps: SUB.ps, rm: SUB.rm, remove: SUB.rm, stop: SUB.stop, start: SUB.start, restart: SUB.restart, kill: SUB.kill, logs: SUB.logs, exec: SUB.exec, inspect: SUB.inspect, run: SUB.run, create: SUB.create, top: SUB.top, port: SUB.port, stats: SUB.stats, rename: SUB.rename, pause: SUB.pause, unpause: SUB.unpause, cp: SUB.cp,
@@ -2306,7 +2396,7 @@ CMDS.docker = {
     if (!name || name === '--help' || name === '-h' || name === 'help') { st.out(HELP); return st.done(0); }
     if (rest.includes('--help') && SUB[name]) { st.out('\nUsage:  docker ' + name + ' [OPTIONS]\n\nRun \'docker --help\' for the list of options. (aide détaillée non simulée)\n'); return st.done(0); }
     const fn = SUB[name] || (name === 'ls' ? null : null);
-    if (name === 'build' || name === 'buildx' || name === 'builder') { st.err('[Docker Lab] « docker ' + name + ' » sera disponible dans une prochaine phase du simulateur (Dockerfile et build).\n'); return st.done(1); }
+    if (name === 'builder') { st.err('[Docker Lab] « docker ' + name + ' » sera disponible dans une prochaine phase du simulateur (Dockerfile et build).\n'); return st.done(1); }
     if (name === 'compose' || name === 'docker-compose') { st.err('[Docker Lab] « docker compose » sera disponible dans une prochaine phase du simulateur.\n'); return st.done(1); }
     if (name === 'login' || name === 'logout' || name === 'push' || name === 'search') { st.err('[Docker Lab] « docker ' + name + ' » n\'est pas simulé (le registre est fictif et en lecture seule).\n'); return st.done(1); }
     if (!fn) { st.err('docker: \'' + name + '\' is not a docker command.\nSee \'docker --help\'\n'); return st.done(1); }
@@ -2316,6 +2406,341 @@ CMDS.docker = {
 };
 CMDS.help = { host: true, f(a, st) { st.out('Docker Lab — terminal de l\'hôte Docker\n\nCommandes docker : run, ps, images, pull, stop, start, restart, kill, rm, rmi, logs, exec, inspect, cp, top, stats, port, rename, pause, unpause, tag, create,\n                   volume (create/ls/rm/inspect/prune), network (create/ls/rm/inspect/connect/disconnect/prune), container/image/system (prune, df)…\nCommandes de l\'hôte : ls, cat, echo, cd, pwd, mkdir, touch, rm, cp, mv, head, tail, grep, wc, curl, nano, clear, env…\nTab complète, ↑/↓ naviguent dans l\'historique, Ctrl+C interrompt, Ctrl+L efface.\n'); st.done(0); } };
 CMDS.history = { host: true, f(a, st) { const h = (st.ctx.session && st.ctx.session.history) || []; st.out(h.map((l, i) => String(i + 1).padStart(5) + '  ' + l).join('\n') + (h.length ? '\n' : '')); st.done(0); } };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* build.js — Dockerfile : analyse, `docker build` (BuildKit simulé : cache, multi-stage, .dockerignore), `docker history`, `docker commit` */
+(function (g) {
+'use strict';
+const NS = g.NS = g.NS || {};
+const { U, VFS, DockerError, Shell } = NS;
+const SUB = NS.dockerSub; const parseFlags = NS.dockerParseFlags; const { dErr, why } = NS.dockerHelpers;
+const q = a => "'" + String(a).replace(/'/g, "'\\''") + "'";
+const KNOWN = ['FROM', 'RUN', 'CMD', 'LABEL', 'MAINTAINER', 'EXPOSE', 'ENV', 'ADD', 'COPY', 'ENTRYPOINT', 'VOLUME', 'USER', 'WORKDIR', 'ARG', 'ONBUILD', 'STOPSIGNAL', 'HEALTHCHECK', 'SHELL'];
+
+/* ------------------------------------------------ analyse du Dockerfile */
+function parseDockerfile(text) {
+  const lines = String(text).replace(/\r/g, '').split('\n'); const out = []; let i = 0;
+  while (i < lines.length) {
+    const t = lines[i].trim(); const start = i + 1;
+    if (!t || t[0] === '#') { i++; continue; }
+    let full = lines[i];
+    while (/\\\s*$/.test(full) && i + 1 < lines.length) {
+      full = full.replace(/\\\s*$/, ''); i++;
+      while (i < lines.length && (lines[i].trim()[0] === '#')) i++;
+      if (i < lines.length) full += lines[i];
+    }
+    const m = /^\s*(\S+)\s*([\s\S]*)$/.exec(full); out.push({ kw: m[1].toUpperCase(), raw: m[1], args: m[2].trim(), line: start, end: i + 1, text: m[1].toUpperCase() + ' ' + m[2].trim() });
+    i++;
+  }
+  return out;
+}
+function jsonArr(s) { if (s[0] !== '[') return null; try { const a = JSON.parse(s); if (Array.isArray(a) && a.every(x => typeof x === 'string')) return a; } catch (e) { } return null; }
+function goArr(a) { return '[' + a.map(x => JSON.stringify(x)).join(' ') + ']'; }
+function expand(s, env) {
+  return s.replace(/\$(?:\{([A-Za-z_][A-Za-z0-9_]*)(?::?([-+])([^}]*))?\}|([A-Za-z_][A-Za-z0-9_]*))/g, (m, a, op, w, b) => {
+    const k = a || b; const v = env[k];
+    if (op === '-') return v !== undefined && v !== '' ? v : w; if (op === '+') return v !== undefined && v !== '' ? w : '';
+    return v === undefined ? '' : v;
+  });
+}
+function kvPairs(args) {
+  const toks = U.shellSplit(args) || []; const out = [];
+  if (toks.length && toks[0].indexOf('=') > 0) { toks.forEach(t => { const i = t.indexOf('='); if (i > 0) out.push([t.slice(0, i), t.slice(i + 1)]); }); return out; }
+  if (toks.length >= 2) return [[toks[0], args.replace(/^\S+\s+/, '').replace(/^"(.*)"$/, '$1')]];
+  return out;
+}
+function envMapOf(arr) { const m = {}; arr.forEach(e => { const i = e.indexOf('='); m[i < 0 ? e : e.slice(0, i)] = i < 0 ? '' : e.slice(i + 1); }); return m; }
+function setEnv(arr, k, v) { const i = arr.findIndex(e => e.split('=')[0] === k); if (i >= 0) arr[i] = k + '=' + v; else arr.push(k + '=' + v); }
+const hms = ms => (ms / 1000).toFixed(1) + 's';
+const PKG_BYTES = { apk: 2400000, apt: 24000000, pip: 11000000, npm: 15000000 };
+function pkgBytes(before, after) { let n = 0; Object.keys(after).forEach(k => { if (after[k] && !before[k]) n += /^pip:/.test(k) ? PKG_BYTES.pip : /^npm:/.test(k) ? PKG_BYTES.npm : PKG_BYTES.apk; }); return n; }
+function globRe(p) { return new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$'); }
+
+/* ------------------------------------------------ construction */
+/* o : { text, ctxDir, file, tags[], args{}, noCache, target } ; cb(err|null, { image, steps, warnings }) */
+NS.buildImage = function (lab, o, cb) {
+  const t0 = lab.clock.now; const steps = []; let err = null;
+  const cache = lab.buildCache || (lab.buildCache = {});
+  const instrs = parseDockerfile(o.text);
+  const fail = (msg, extra) => { err = Object.assign({ msg }, extra || {}); finish(); };
+  const fmtLines = (hit) => { };
+  function finish() { cb(err, { steps, instrs, ms: lab.clock.now - t0, image: err ? null : result }); }
+  let result = null;
+  if (!instrs.length) return setTimeout0(() => { steps.push({ label: '[internal] load build definition from Dockerfile', ms: 0, subs: ['=> transferring dockerfile: 2B'] }); fail('failed to solve: dockerfile parse error on line 1: file with no instructions', { kind: 'parse' }); });
+  for (const ins of instrs) if (!KNOWN.includes(ins.kw)) { return setTimeout0(() => { steps.push({ label: '[internal] load build definition from Dockerfile', ms: 0, subs: ['=> transferring dockerfile: ' + o.text.length + 'B'] }); fail('failed to solve: dockerfile parse error on line ' + ins.line + ': unknown instruction: ' + ins.raw, { kind: 'parse', instr: ins }); }); }
+  /* ARG globaux avant le premier FROM */
+  const gargs = {}; let k0 = 0; const argVal = (n, d) => o.args && o.args[n] !== undefined ? o.args[n] : d;
+  while (k0 < instrs.length && instrs[k0].kw === 'ARG') { const p = instrs[k0].args.split('='); gargs[p[0]] = argVal(p[0], p.length > 1 ? p.slice(1).join('=').replace(/^"(.*)"$/, '$1') : ''); k0++; }
+  if (k0 >= instrs.length || instrs[k0].kw !== 'FROM') { return setTimeout0(() => { steps.push({ label: '[internal] load build definition from Dockerfile', ms: 0, subs: ['=> transferring dockerfile: ' + o.text.length + 'B'] }); fail('failed to solve: dockerfile parse error on line ' + (instrs[k0] || instrs[0]).line + ': no build stage in current context', { kind: 'parse', instr: instrs[k0] || instrs[0] }); }); }
+  /* découpage en étapes */
+  const stages = []; for (let i = k0; i < instrs.length; i++) { if (instrs[i].kw === 'FROM') stages.push({ from: instrs[i], body: [] }); else stages[stages.length - 1].body.push(instrs[i]); }
+  let target = stages.length - 1;
+  if (o.target) { const ti = stages.findIndex((s, i) => stageName(s, i) === o.target); if (ti < 0) { return setTimeout0(() => fail('failed to solve: target stage "' + o.target + '" could not be found', { kind: 'target' })); } target = ti; }
+  function stageName(s, i) { const m = /\s+as\s+(\S+)\s*$/i.exec(s.from.args); return m ? m[1] : (stages.length > 1 ? 'stage-' + i : ''); }
+  steps.push({ label: '[internal] load build definition from Dockerfile', ms: 20, subs: ['=> transferring dockerfile: ' + o.text.length + 'B'] });
+  const bases = []; stages.forEach((s, i) => { const raw = expand(s.from.args.replace(/^--platform=\S+\s+/, '').replace(/\s+as\s+\S+\s*$/i, ''), gargs).trim(); s.ref = raw; s.isStage = stages.slice(0, i).some((x, j) => stageName(x, j).toLowerCase() === raw.toLowerCase()) ; if (!s.isStage && !bases.includes(raw)) bases.push(raw); });
+  const metaSteps = bases.map(b => { const p = lab.parseRef(b); const st = { label: '[internal] load metadata for docker.io/' + (p.repo.includes('/') ? p.repo : 'library/' + p.repo) + ':' + p.tag, ms: 300 + (lab.findImage(b) ? 0 : 200) }; steps.push(st); return st; });
+  steps.push({ label: '[internal] load .dockerignore', ms: 10, subs: ['=> transferring context: 2B'] });
+  /* .dockerignore */
+  let ignore = []; const ctxDir = o.ctxDir; const ig = lab.hostFs.read(ctxDir + '/.dockerignore'); if (ig !== null) { ignore = ig.split('\n').map(x => x.trim()).filter(x => x && x[0] !== '#'); steps[steps.length - 1].subs = ['=> transferring context: ' + ig.length + 'B']; }
+  const ignored = rel => ignore.some(p => { p = p.replace(/^\//, '').replace(/\/$/, ''); return rel === p || rel.startsWith(p + '/') || globRe(p).test(rel) || globRe(p).test(rel.split('/')[0]); });
+  const finished = []; /* étapes terminées : { name, fs, config, pkgs, layers, hist, img, key } */
+  let ctxStep = null; let stageIdx = 0;
+
+  function runStage() {
+    if (stageIdx > target) return exportImage();
+    const si = stageIdx; const s = stages[si]; const name = stageName(s, si);
+    const total = 1 + s.body.filter(b => ['RUN', 'COPY', 'ADD', 'WORKDIR'].includes(b.kw)).length; let n = 0;
+    const lab_ = '[' + (name ? name + ' ' : '') + (++n) + '/' + total + '] ';
+    const startFrom = (baseState, cachedFlag) => {
+      const st = { name, fs: baseState.fs, config: baseState.config, pkgs: baseState.pkgs, layers: baseState.layers, hist: baseState.hist, img: baseState.img, key: baseState.key, args: Object.assign({}, gargs), cmdSet: false };
+      steps.push({ label: lab_ + 'FROM ' + (baseState.dispRef), ms: baseState.ms, cached: false, subs: baseState.subs });
+      body(st, 0);
+    };
+    if (s.isStage) { const prev = finished.find(f => f.name && f.name.toLowerCase() === s.ref.toLowerCase()); const bs = { fs: prev.fs.clone(), config: JSON.parse(JSON.stringify(prev.config)), pkgs: Object.assign({}, prev.pkgs), layers: prev.layers.slice(), hist: prev.hist.slice(), img: prev.img, key: prev.key, ms: 0, dispRef: prev.name, subs: null }; return startFrom(bs); }
+    const ref = s.ref; const p = lab.parseRef(ref);
+    const withImage = img => {
+      const bs = { fs: new VFS(VFS.clone(img.fs)), config: JSON.parse(JSON.stringify(img.config)), pkgs: Object.assign({}, img.pkgs || {}), layers: img.layers.slice(), hist: imageHistory(lab, img).slice(), img, key: img.id, ms: 0, dispRef: 'docker.io/' + (p.repo.includes('/') ? p.repo : 'library/' + p.repo) + ':' + p.tag + (img.digest ? '@' + img.digest.slice(0, 19) + '…' : ''), subs: null };
+      bs.fs.home = img.os === 'scratch' ? '/' : '/root';
+      if (ref === 'scratch') bs.dispRef = 'scratch';
+      startFrom(bs);
+    };
+    if (ref === 'scratch') return withImage({ fs: new VFS(), config: { entrypoint: [], cmd: [], env: [], exposed: [], workdir: '', volumes: [], stopSignal: 'SIGTERM' }, layers: [], id: U.hexOf('scratch', 64), os: 'scratch', spec: NS.registryLookup('hello-world', 'latest'), size: 0, history: [] });
+    const local = lab.findImage(ref);
+    if (local) { const ms = metaSteps[bases.indexOf(ref)]; return withImage(local); }
+    /* pas en local : on tente de le tirer (silencieusement, comme BuildKit) */
+    lab.pull(ref, () => { }, (e, r) => {
+      if (e) {
+        const ms = metaSteps[bases.indexOf(ref)]; ms.err = true; const dispName = 'docker.io/' + (p.repo.includes('/') ? p.repo : 'library/' + p.repo) + ':' + p.tag;
+        const real = !NS.REGISTRY[p.repo] ? dispName + ': pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed' : dispName + ': not found';
+        return fail('failed to solve: ' + (NS.REGISTRY[p.repo] ? ref + ': ' : '') + 'failed to resolve source metadata for ' + dispName + ': ' + real, { kind: 'base', step: ms, instr: s.from });
+      }
+      withImage(r.image);
+    }, { noDefault: true });
+  }
+
+  function body(st, bi) {
+    const s = stages[stageIdx]; const total = 1 + s.body.filter(b => ['RUN', 'COPY', 'ADD', 'WORKDIR'].includes(b.kw)).length;
+    let num = 1 + s.body.slice(0, bi).filter(b => ['RUN', 'COPY', 'ADD', 'WORKDIR'].includes(b.kw)).length;
+    if (bi >= s.body.length) { finished.push({ name: stageName(s, stageIdx), fs: st.fs, config: st.config, pkgs: st.pkgs, layers: st.layers, hist: st.hist, img: st.img, key: st.key, st }); stageIdx++; return runStage(); }
+    const ins = s.body[bi]; const kw = ins.kw; const nm = stageName(s, stageIdx); const stepNo = ['RUN', 'COPY', 'ADD', 'WORKDIR'].includes(kw) ? '[' + (nm ? nm + ' ' : '') + (num + 1) + '/' + total + '] ' : null;
+    const env = Object.assign({}, st.args, envMapOf(st.config.env)); const cfg = st.config;
+    const next = () => setTimeout0(() => body(st, bi + 1));
+    const hist = (by, size, empty) => st.hist.push({ created: lab.clock.now, by, size: size || 0, empty: !!empty, comment: 'buildkit.dockerfile.v0' });
+    const bad = (msg, extra) => { const parse = extra && extra.kind === 'parse'; const stp = { label: (stepNo || '') + ins.text, ms: 0, err: true }; if (!parse) steps.push(stp); fail(msg, Object.assign({ kind: 'instr', step: parse ? null : stp, instr: ins }, extra || {})); };
+    /* cache */
+    const chainKey = () => U.hexOf(st.key + '|' + ins.text + '|' + Object.keys(st.args).sort().map(k => k + '=' + st.args[k]).join(','), 32);
+    const restore = c => { st.fs = new VFS(JSON.parse(c.fs)); st.fs.home = '/root'; st.config = JSON.parse(c.config); st.pkgs = Object.assign({}, c.pkgs); st.layers = c.layers.slice(); st.hist = c.hist.slice(); };
+    const save = key => { cache[key] = { fs: JSON.stringify(st.fs.root), config: JSON.stringify(st.config), pkgs: Object.assign({}, st.pkgs), layers: st.layers.slice(), hist: st.hist.slice() }; };
+    const stepDone = (stp, key, layer) => { st.key = key; if (layer) st.layers.push(layer); save(key); steps.push(stp); next(); };
+    const metaDone = (extra) => { st.key = U.hexOf(st.key + '|' + ins.text + (extra || ''), 32); next(); };
+    switch (kw) {
+      case 'ARG': { const p = ins.args.split('='); const nmA = p[0].trim(); st.args[nmA] = argVal(nmA, p.length > 1 ? expand(p.slice(1).join('=').replace(/^"(.*)"$/, '$1'), env) : (gargs[nmA] !== undefined ? gargs[nmA] : '')); if (!(o.args && o.args[nmA] !== undefined)) { /* valeur par défaut */ } return metaDone(); }
+      case 'ENV': { kvPairs(ins.args).forEach(([k, v]) => setEnv(cfg.env, k, expand(v, env))); hist('ENV ' + kvPairs(ins.args).map(([k, v]) => k + '=' + expand(v, env)).join(' '), 0, true); return metaDone(); }
+      case 'LABEL': { cfg.labels = cfg.labels || {}; kvPairs(ins.args).forEach(([k, v]) => { cfg.labels[k] = expand(v, env); }); hist('LABEL ' + ins.args, 0, true); return metaDone(); }
+      case 'MAINTAINER': hist('MAINTAINER ' + ins.args, 0, true); return metaDone();
+      case 'EXPOSE': { const ex = cfg.exposed = cfg.exposed || []; for (const p of expand(ins.args, env).split(/\s+/).filter(Boolean)) { const m = /^(\d+)(?:-(\d+))?(?:\/(tcp|udp))?$/.exec(p); if (!m) return bad('failed to solve: invalid containerPort: ' + p, { kind: 'parse' }); const e = m[1] + '/' + (m[3] || 'tcp'); if (!ex.includes(e)) ex.push(e); } hist('EXPOSE map[' + expand(ins.args, env).split(/\s+/).filter(Boolean).map(p => (/\//.test(p) ? p : p + '/tcp') + ':{}').join(' ') + ']', 0, true); return metaDone(); }
+      case 'USER': cfg.user = expand(ins.args, env); hist('USER ' + cfg.user, 0, true); return metaDone();
+      case 'VOLUME': { const arr = jsonArr(ins.args) || ins.args.split(/\s+/); cfg.volumes = cfg.volumes || []; arr.forEach(v => { v = expand(v, env); if (!cfg.volumes.includes(v)) cfg.volumes.push(v); st.fs.mkdirp(v); }); hist('VOLUME ' + goArr(arr).replace(/"/g, ''), 0, true); return metaDone(); }
+      case 'STOPSIGNAL': cfg.stopSignal = ins.args; hist('STOPSIGNAL ' + ins.args, 0, true); return metaDone();
+      case 'HEALTHCHECK': case 'SHELL': hist(ins.text, 0, true); return metaDone();
+      case 'ONBUILD': return bad('failed to solve: ONBUILD n\'est pas pris en charge par Docker Lab', { kind: 'parse' });
+      case 'CMD': { const a = jsonArr(ins.args); cfg.cmd = a || ['/bin/sh', '-c', ins.args]; st.cmdSet = true; hist('CMD ' + (a ? goArr(a) : goArr(['/bin/sh', '-c', ins.args])), 0, true); return metaDone(); }
+      case 'ENTRYPOINT': { const a = jsonArr(ins.args); cfg.entrypoint = a || ['/bin/sh', '-c', ins.args]; if (!st.cmdSet) cfg.cmd = []; hist('ENTRYPOINT ' + (a ? goArr(a) : goArr(['/bin/sh', '-c', ins.args])), 0, true); return metaDone(); }
+      case 'WORKDIR': {
+        const key = chainKey(); const w = expand(ins.args, env); const abs = w[0] === '/' ? w : (cfg.workdir || '/').replace(/\/$/, '') + '/' + w;
+        const c = !o.noCache && cache[key]; const stp = { label: stepNo + 'WORKDIR ' + w, ms: c ? 0 : 30, cached: !!c };
+        if (c) { restore(c); st.key = key; steps.push(stp); return next(); }
+        const dir = st.fs.norm('/', abs); st.fs.mkdirp(dir); cfg.workdir = dir; hist('WORKDIR ' + dir, 0, true); st.key = key; save(key); steps.push(stp); return next();
+      }
+      case 'RUN': {
+        const flagsOk = /^--(mount|network|security)/.test(ins.args); if (flagsOk) return bad('failed to solve: les options de RUN (--mount, --network…) ne sont pas simulées', { kind: 'parse' });
+        const arr = jsonArr(ins.args); const shell = arr ? arr.map(q).join(' ') : ins.args; const disp = arr ? arr.join(' ') : ins.args; const byCmd = arr ? goArr(arr) : '/bin/sh -c ' + ins.args;
+        const key = chainKey(); const c = !o.noCache && cache[key]; const stp = { label: stepNo + 'RUN ' + disp.replace(/\s+/g, ' '), ms: 0, cached: !!c };
+        if (c) { restore(c); st.key = key; steps.push(stp); return next(); }
+        const cont = new NS.Container(lab, { id: 'buildkit', name: 'buildkit', imageId: st.img.id, imageRef: 'build', spec: st.img.spec, config: { entrypoint: [], cmd: [], env: cfg.env.concat(Object.keys(st.args).map(k => k + '=' + st.args[k])), exposed: [], workdir: cfg.workdir || '/', user: cfg.user || '', tty: false, openStdin: false, hostname: 'buildkitsandbox', imageCmd: [] }, fs: st.fs, pkgs: st.pkgs, nets: { bridge: { aliases: [], ip: '172.17.0.2' } }, runningBuild: true, mounts: [], listen: [], timers: [], procs: [], state: { status: 'running' } });
+        const ctx = NS.containerCtx(lab, cont, { workdir: cfg.workdir || '/' }); ctx.inScript = true; const sh = new Shell(lab, ctx);
+        const sizeBefore = st.fs.size('/'); const jBefore = JSON.stringify(st.fs.root); const pkBefore = Object.assign({}, st.pkgs); const t1 = lab.clock.now; let outp = '';
+        const add = t => { outp += t; };
+        sh.run(shell, { out: add, err: add, done: code => {
+          stp.ms = Math.max(lab.clock.now - t1, 40);
+          if (code !== 0) { stp.err = true; steps.push(stp); return fail('failed to solve: process "' + (arr ? goArr(arr) : '/bin/sh -c ' + ins.args) + '" did not complete successfully: exit code: ' + code, { kind: 'run', step: stp, instr: ins, output: outp, ms: stp.ms }); }
+          const changed = JSON.stringify(st.fs.root) !== jBefore || pkgBytes(pkBefore, st.pkgs) > 0; let layer = null; let sz = 0;
+          if (changed) { sz = Math.max(0, st.fs.size('/') - sizeBefore) + pkgBytes(pkBefore, st.pkgs); layer = { id: U.hexOf('layer:' + key, 12), size: sz }; }
+          hist('RUN ' + byCmd + ' # buildkit', sz, !changed);
+          stepDone(stp, key, layer);
+        } });
+        return;
+      }
+      case 'COPY': case 'ADD': {
+        let rest = ins.args; let from = null; let m;
+        while ((m = /^--(\w+)=(\S+)\s*/.exec(rest))) { if (m[1] === 'from') from = m[2]; rest = rest.slice(m[0].length); }
+        const arr = jsonArr(rest) || (U.shellSplit(rest) || []).slice(); if (arr.length < 2) return bad('failed to solve: dockerfile parse error on line ' + ins.line + ': ' + kw + ' requires at least two arguments', { kind: 'parse' });
+        const srcs = arr.slice(0, -1).map(x => expand(x, env)); let dest = expand(arr[arr.length - 1], env);
+        if (kw === 'ADD' && srcs.some(x => /^https?:\/\//.test(x))) return bad('failed to solve: ADD d\'une URL non simulé (le réseau sortant n\'existe pas ici)', { kind: 'parse' });
+        let srcFs, srcRoot, fromStage = null;
+        if (from !== null) { fromStage = finished.find((f, i) => (f.name && f.name.toLowerCase() === from.toLowerCase()) || String(i) === from); if (!fromStage) return bad('failed to solve: COPY --from=' + from + ' : seules les étapes du Dockerfile sont prises en charge', { kind: 'parse' }); srcFs = fromStage.fs; srcRoot = ''; }
+        else { srcFs = lab.hostFs; srcRoot = ctxDir; if (!ctxStep) { ctxStep = { label: '[internal] load build context', ms: 30, subs: [] }; steps.push(ctxStep); } }
+        const files = []; let missing = null;
+        for (const sp of srcs) {
+          const rel = from !== null ? (sp[0] === '/' ? sp : (fromStage.config.workdir || '/') + '/' + sp) : sp.replace(/^\.?\//, '');
+          if (from === null && /(^|\/)\.\.(\/|$)/.test(rel)) { missing = { forbidden: sp }; break; }
+          const base = from !== null ? srcFs.norm('/', rel) : srcFs.norm('/', srcRoot + '/' + rel);
+          const hits = []; if (/[*?]/.test(base)) { const dir = base.slice(0, base.lastIndexOf('/')) || '/'; const re = globRe(base.slice(base.lastIndexOf('/') + 1)); (srcFs.list(dir) || []).filter(x => re.test(x)).forEach(x => hits.push((dir === '/' ? '' : dir) + '/' + x)); } else if (srcFs.exists(base)) hits.push(base);
+          if (!hits.length) { missing = { src: sp }; break; }
+          hits.forEach(hp => {
+            const nodeTop = srcFs.get(hp); const relHp = from !== null ? hp : hp.slice(srcRoot.length).replace(/^\//, '');
+            if (from === null && ignored(relHp)) { missing = missing || { src: sp, ign: true }; return; }
+            if (nodeTop.t === 'f') files.push({ rel: relHp, path: hp, base: hp.split('/').pop(), data: nodeTop.d, dirSrc: false });
+            else { const walk = (n, p, r) => { Object.keys(n.c).forEach(k => { const rr = r ? r + '/' + k : k; if (from === null && ignored((relHp ? relHp + '/' : '') + rr)) return; if (n.c[k].t === 'f') files.push({ rel: rr, data: n.c[k].d, dirSrc: true }); else { files.push({ rel: rr, dir: true, dirSrc: true }); walk(n.c[k], p + '/' + k, rr); } }); }; walk(nodeTop, hp, ''); if (!Object.keys(nodeTop.c).length) files.push({ emptyDirSrc: true }); }
+          });
+          if (missing && missing.ign) { missing = { src: sp }; break; }
+        }
+        if (missing) {
+          const stp = { label: stepNo + ins.text, ms: 0, err: true }; if (ctxStep) ctxStep.subs = ['=> transferring context: 2B']; steps.push(stp);
+          if (missing.forbidden) return fail('failed to solve: failed to compute cache key: forbidden path outside the build context: ' + missing.forbidden + ' ()', { kind: 'instr', step: stp, instr: ins });
+          return fail('failed to solve: failed to compute cache key: failed to calculate checksum of ref ' + U.hexOf('ref1' + ins.text, 25) + '::' + U.hexOf('ref2' + ins.text, 25) + ': "/' + missing.src.replace(/^\.?\//, '') + '": not found', { kind: 'instr', step: stp, instr: ins });
+        }
+        const bytes = files.reduce((a, f) => a + (f.data ? f.data.length : 0), 0);
+        if (ctxStep && !ctxStep.done) { ctxStep.subs = ['=> transferring context: ' + (bytes < 1024 ? bytes + 'B' : (bytes / 1024).toFixed(2) + 'kB')]; }
+        const sig = files.map(f => f.rel + ':' + (f.data || '')).join('|'); const key = U.hexOf(chainKey() + '|' + U.hexOf(sig, 16), 32);
+        const stp = { label: stepNo + kw + (from ? ' --from=' + from : '') + ' ' + (arr.join(' ')), ms: 30, cached: false };
+        const c = !o.noCache && cache[key]; if (c) { stp.cached = true; stp.ms = 0; restore(c); st.key = key; steps.push(stp); return next(); }
+        const wd = cfg.workdir || '/'; const dabs = st.fs.norm(wd, dest); const dirDest = /\/$/.test(dest) || srcs.length > 1 || files.some(f => f.dirSrc) || files.length > 1 || (st.fs.isDir(dabs));
+        const before = st.fs.size('/');
+        files.forEach(f => {
+          if (f.emptyDirSrc) { st.fs.mkdirp(dabs); return; }
+          let tgt; if (f.dirSrc) tgt = dabs + '/' + f.rel; else if (dirDest) tgt = dabs + '/' + f.base; else tgt = dabs;
+          if (f.dir) st.fs.mkdirp(tgt); else st.fs.writep(tgt, f.data);
+        });
+        const sz = bytes + Math.max(0, st.fs.size('/') - before - bytes); const layer = { id: U.hexOf('layer:' + key, 12), size: Math.max(sz, bytes) };
+        hist(kw + ' ' + arr.join(' ') + ' # buildkit', layer.size, false);
+        return stepDone(stp, key, layer);
+      }
+      default: return bad('failed to solve: instruction non prise en charge : ' + kw, { kind: 'parse' });
+    }
+  }
+
+  function exportImage() {
+    const st = finished[target]; const cfg = st.config; const key = st.key;
+    const id = U.hexOf('built:' + key + '|' + JSON.stringify(cfg), 64);
+    let img = lab.images.find(i => i.id === id);
+    const baseSize = st.img.size || 0; const baseLayerIds = new Set(st.img.layers.map(l => l.id));
+    const size = baseSize + st.layers.filter(l => !baseLayerIds.has(l.id)).reduce((a, l) => a + l.size, 0);
+    const exp = { label: 'exporting to image', ms: 100, subs: ['=> exporting layers', '=> writing image sha256:' + id] };
+    if (!img) {
+      img = { id, refs: [], created: lab.clock.now, size, spec: st.img.spec, config: JSON.parse(JSON.stringify(cfg)), fs: st.fs.root, layers: st.layers.slice(), digest: 'sha256:' + U.hexOf('d' + id, 64), os: st.img.os, history: st.hist.slice(), pkgs: Object.assign({}, st.pkgs), local: true };
+      img.config.volumes = img.config.volumes || []; img.config.exposed = img.config.exposed || [];
+      lab.images.push(img);
+    }
+    const names = []; (o.tags || []).forEach(tg => { const p = lab.parseRef(tg); lab.images.forEach(i => { i.refs = i.refs.filter(x => !(x.repo === p.repo && x.tag === p.tag)); }); if (!img.refs.some(x => x.repo === p.repo && x.tag === p.tag)) img.refs.push({ repo: p.repo, tag: p.tag }); names.push('docker.io/' + (p.repo.includes('/') ? p.repo : 'library/' + p.repo) + ':' + p.tag); });
+    names.forEach(n => exp.subs.push('=> naming to ' + n));
+    steps.push(exp); lab.emit('image', 'build', 'sha256:' + id, { name: names[0] || id.slice(0, 12) });
+    result = img;
+    lab.wait(150, () => finish());
+  }
+  setTimeout0(() => lab.wait(60, () => runStage()));
+  function setTimeout0(fn) { lab.clock.schedule(0, fn); }
+};
+
+/* historique d'une image (pour une image tirée du registre : reconstitué à partir de ses couches) */
+function imageHistory(lab, img) {
+  if (img.history && img.history.length) return img.history;
+  const spec = img.spec; const H = []; const c = img.config; const t = img.created;
+  img.layers.forEach((l, i) => H.push({ created: t, by: i === 0 ? '/bin/sh -c #(nop) ADD file:' + U.hexOf('add' + l.id, 64) + ' in / ' : 'RUN /bin/sh -c set -eux; … # buildkit', size: l.size, empty: false, comment: 'buildkit.dockerfile.v0' }));
+  if (c.env && c.env.length > 1) H.push({ created: t, by: 'ENV ' + c.env[c.env.length - 1], size: 0, empty: true, comment: 'buildkit.dockerfile.v0' });
+  (c.exposed || []).forEach(e => H.push({ created: t, by: 'EXPOSE map[' + e + ':{}]', size: 0, empty: true, comment: 'buildkit.dockerfile.v0' }));
+  if (c.entrypoint && c.entrypoint.length) H.push({ created: t, by: 'ENTRYPOINT ' + goArr(c.entrypoint), size: 0, empty: true, comment: 'buildkit.dockerfile.v0' });
+  if (c.cmd && c.cmd.length) H.push({ created: t, by: 'CMD ' + goArr(c.cmd), size: 0, empty: true, comment: 'buildkit.dockerfile.v0' });
+  img.history = H; return H;
+}
+NS.imageHistory = imageHistory;
+
+/* ------------------------------------------------ affichage BuildKit (version « terminal » : image finale de la progression) */
+const W = 80;
+function line(label, t, tag) { const left = ' => ' + (tag ? tag + ' ' : '') + label; const right = t; const room = W - right.length - 1; let l = left.length > room ? left.slice(0, room - 1) + '…' : left; return l.padEnd(room) + ' ' + right; }
+function renderTty(res, o, failed) {
+  const out = []; const done = res.steps.filter(s => !s.err).length; const total = res.steps.length;
+  out.push(('[+] Building ' + hms(res.ms) + ' (' + (failed ? done : total) + '/' + total + ')' + (failed ? '' : ' FINISHED')).padEnd(W - 14) + 'docker:default');
+  res.steps.forEach(s => { out.push(line(s.label, s.cached ? '0.0s' : hms(s.ms), s.err ? 'ERROR' : s.cached ? 'CACHED' : '')); (s.subs || []).forEach(x => out.push(' => ' + x.replace(/^=> /, '=> ').padEnd(W - 9) + ' ' + (/exporting layers|writing image|naming|exporting to/.test(x) ? '0.0s' : '0.0s'))); });
+  return out.join('\n') + '\n';
+}
+function renderPlain(res) {
+  const out = []; res.steps.forEach((s, i) => { const n = i + 1; out.push('#' + n + ' ' + s.label); (s.subs || []).forEach(x => out.push('#' + n + ' ' + x.replace(/^=> /, '') + ' done')); out.push('#' + n + (s.cached ? ' CACHED' : s.err ? ' ERROR' : ' DONE ' + hms(s.ms))); out.push(''); });
+  return out.join('\n') + '\n';
+}
+function errorBlock(res, err, dockerfileText, file) {
+  const out = []; const stp = err.step;
+  if (stp) { out.push('------'); out.push(' > ' + stp.label + ':'); (err.output ? err.output.replace(/\n$/, '').split('\n') : []).forEach(l => out.push(((err.ms || 0) / 1000).toFixed(3) + ' ' + l)); out.push('------'); }
+  if (err.instr) {
+    const L = dockerfileText.replace(/\r/g, '').split('\n'); const a = err.instr.line, b = err.instr.end; out.push(file + ':' + a); out.push('--------------------');
+    for (let n = Math.max(1, a - 3); n <= Math.min(L.length, b + 2); n++) { const mk = n >= a && n <= b; out.push(String(n).padStart(4) + ' |' + (mk ? ' >>> ' : '     ') + L[n - 1]); }
+    out.push('--------------------');
+  }
+  out.push('ERROR: ' + err.msg); return out.join('\n') + '\n';
+}
+
+/* ------------------------------------------------ docker build */
+const BUILD_USAGE = 'ERROR: "docker buildx build" requires exactly 1 argument.\nSee \'docker buildx build --help\'.\n\nUsage:  docker buildx build [OPTIONS] PATH | URL | -\n\nStart a build\n';
+SUB.build = function (args, st) {
+  const lab = st.lab; const { f, rest, err } = parseFlags(args, ['tag|t:l', 'file|f:s', 'build-arg:l', 'no-cache:b', 'target:s', 'progress:s', 'quiet|q:b', 'pull:b', 'rm:s', 'platform:s', 'label:l', 'network:s', 'load:b', 'compress:b', 'force-rm:b'], false, 'build');
+  if (err) { st.err(err + '\n'); return st.done(1); }
+  if (rest.length !== 1) { st.err(BUILD_USAGE); return st.done(1); }
+  why(st, 'docker build', ['docker build lit un fichier nommé Dockerfile et construit une nouvelle image, instruction par instruction.', 'Le dossier donné en argument (souvent « . ») est le « contexte de build » : seuls ses fichiers peuvent être copiés avec COPY.', 'FROM choisit l\'image de départ ; chaque RUN, COPY ou ADD ajoute une couche en lecture seule ; CMD et ENTRYPOINT définissent ce qui démarrera dans un conteneur.', 'Les étapes inchangées sont réutilisées depuis le cache (CACHED) ; dès qu\'une étape change, toutes les suivantes sont refaites : placez donc ce qui change souvent le plus bas possible.', '-t nom:tag donne un nom à l\'image obtenue ; sans -t l\'image reste anonyme (<none>).']);
+  const ctxDir = st.ctx.fs.norm(st.ctx.cwd, rest[0]);
+  const bad = (m) => { st.err(m + '\n'); st.done(1); };
+  if (!lab.hostFs.isDir(ctxDir)) return bad('ERROR: unable to prepare context: path "' + rest[0] + '" not found');
+  const dfPath = f.file ? st.ctx.fs.norm(st.ctx.cwd, f.file) : ctxDir + '/Dockerfile'; const dfName = f.file || 'Dockerfile';
+  const text = lab.hostFs.read(dfPath);
+  if (text === null) return bad('ERROR: failed to solve: failed to read dockerfile: open ' + dfName + ': no such file or directory');
+  const bargs = {}; (f['build-arg'] || []).forEach(a => { const i = a.indexOf('='); if (i < 0) bargs[a] = ''; else bargs[a.slice(0, i)] = a.slice(i + 1); });
+  for (const tg of (f.tag || [])) if (!lab.validRef(tg)) return bad('ERROR: failed to solve: invalid tag "' + tg + '": invalid reference format');
+  const prog = f.progress || 'auto';
+  NS.buildImage(lab, { text, ctxDir, tags: f.tag || [], args: bargs, noCache: !!f['no-cache'], target: f.target, file: dfName }, (e, res) => {
+    lab.lastBuild = { steps: res.steps, ok: !e, ms: res.ms };
+    if (e) {
+      if (f.quiet) { st.err(errorBlock(res, e, text, dfName).split('\n').slice(-2).join('\n')); return st.done(1); }
+      st.err((prog === 'plain' ? renderPlain(res) : renderTty(res, f, true)) + errorBlock(res, e, text, dfName)); return st.done(1);
+    }
+    if (f.quiet) { st.out('sha256:' + res.image.id + '\n'); return st.done(0); }
+    st.err((prog === 'plain' ? renderPlain(res) : renderTty(res, f, false))); st.done(0);
+  });
+};
+NS.dockerSub.buildx = (a, st) => { if (a[0] === 'build') return SUB.build(a.slice(1), st); st.err('[Docker Lab] seul « docker buildx build » est simulé.\n'); st.done(1); };
+NS.dockerImageSub = NS.dockerImageSub || null;
+
+/* ------------------------------------------------ docker history */
+SUB.history = function (args, st) {
+  const lab = st.lab; const { f, rest, err } = parseFlags(args, ['no-trunc:b', 'quiet|q:b', 'human|H:b', 'format:s'], false, 'history');
+  if (err) { st.err(err + '\n'); return st.done(1); }
+  if (rest.length !== 1) { st.err('docker: "history" requires exactly 1 argument.\nSee \'docker history --help\'.\n\nUsage:  docker history [OPTIONS] IMAGE\n\nShow the history of an image\n'); return st.done(1); }
+  const img = lab.findImage(rest[0]); if (!img) { dErr(st, new DockerError('No such image: ' + rest[0])); return st.done(1); }
+  why(st, 'docker history', ['Affiche, de la plus récente à la plus ancienne, les instructions qui ont construit l\'image et la taille de chaque couche.', 'Une instruction comme ENV, CMD ou EXPOSE ne pèse rien (0B) ; RUN et COPY ajoutent des couches dont la taille s\'additionne dans l\'image finale.', '« <missing> » signifie que l\'identifiant de cette couche intermédiaire n\'est pas conservé localement : c\'est normal.']);
+  const H = imageHistory(lab, img).slice().reverse();
+  const rows = [['IMAGE', 'CREATED', 'CREATED BY', 'SIZE', 'COMMENT']].concat(H.map((h, i) => [i === 0 ? img.id.slice(0, 12) : '<missing>', U.humanDuration(lab.clock.now - h.created) + ' ago', f['no-trunc'] ? h.by : (h.by.length > 45 ? h.by.slice(0, 44) + '…' : h.by), U.humanSize(h.size).replace(/^0$/, '0B'), h.comment || '']));
+  if (f.quiet) { st.out(H.map((h, i) => (i === 0 ? img.id.slice(0, 12) : '<missing>') + '\n').join('')); return st.done(0); }
+  st.out(U.table(rows)); st.done(0);
+};
+if (NS.dockerImageCmds) NS.dockerImageCmds.history = SUB.history;
+
+/* ------------------------------------------------ docker commit */
+SUB.commit = function (args, st) {
+  const lab = st.lab; const { f, rest, err } = parseFlags(args, ['author|a:s', 'message|m:s', 'pause|p:s', 'change|c:l'], false, 'commit');
+  if (err) { st.err(err + '\n'); return st.done(1); }
+  if (rest.length < 1 || rest.length > 2) { st.err('docker: "commit" requires at least 1 and at most 2 arguments.\nSee \'docker commit --help\'.\n\nUsage:  docker commit [OPTIONS] CONTAINER [REPOSITORY[:TAG]]\n\nCreate a new image from a container\'s changes\n'); return st.done(1); }
+  const c = lab.getContainer(rest[0]); if (!c) { dErr(st, new DockerError('No such container: ' + rest[0])); return st.done(1); }
+  why(st, 'docker commit', ['docker commit fige l\'état du système de fichiers d\'un conteneur en une nouvelle image (une couche de plus).', 'C\'est pratique pour expérimenter, mais peu reproductible : personne ne sait ce que vous avez tapé. Un Dockerfile décrit la même chose de façon lisible et rejouable.']);
+  const base = lab.images.find(i => i.id === c.imageId); const fsRoot = VFS.clone(c.fs.root);
+  const delta = Math.max(0, c.fs.size('/') - new VFS(VFS.clone(base.fs)).size('/')) + pkgBytes(base.pkgs || {}, c.pkgs || {});
+  const lay = { id: U.hexOf('commit' + c.id + lab.clock.now, 12), size: delta };
+  const id = lab.hex(64); const hist = imageHistory(lab, base).slice(); hist.push({ created: lab.clock.now, by: f.message ? f.message : '', size: delta, empty: false, comment: f.message || '' });
+  const img = { id, refs: [], created: lab.clock.now, size: base.size + delta, spec: base.spec, config: JSON.parse(JSON.stringify(base.config)), fs: fsRoot, layers: base.layers.concat([lay]), digest: 'sha256:' + U.hexOf('d' + id, 64), os: base.os, history: hist, pkgs: Object.assign({}, c.pkgs), local: true };
+  lab.images.push(img);
+  if (rest[1]) { if (!lab.validRef(rest[1])) { st.err('Error response from daemon: invalid reference format\n'); return st.done(1); } const p = lab.parseRef(rest[1]); lab.images.forEach(i => { i.refs = i.refs.filter(x => !(x.repo === p.repo && x.tag === p.tag)); }); img.refs.push({ repo: p.repo, tag: p.tag }); }
+  lab.emit('container', 'commit', c.id, { name: c.name }); st.out('sha256:' + id + '\n'); st.done(0);
+};
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
@@ -2674,6 +3099,9 @@ NS.CHEAT = [
   ['Réseaux', [
     ['docker network ls', 'liste les réseaux'], ['docker network create mon-reseau', 'réseau bridge personnalisé'], ['docker run -d --name api --network mon-reseau nginx', 'attache au réseau'], ['docker network inspect mon-reseau', 'détails (sous-réseau, conteneurs)'],
     ['docker network connect mon-reseau web', 'branche un conteneur existant'], ['docker network disconnect mon-reseau web', 'débranche'], ['docker run --rm --network mon-reseau alpine ping -c 2 api', 'résolution par nom']]],
+  ['Images et Dockerfile', [
+    ['docker build -t monimage:1.0 .', 'construit une image depuis le Dockerfile du dossier'], ['docker build --no-cache -t monimage .', 'ignore le cache de couches'], ['docker build -f autre.Dockerfile -t x .', 'Dockerfile alternatif'], ['docker build --build-arg VERSION=2 -t x .', 'passe un argument ARG'],
+    ['docker build --progress=plain -t x .', 'sortie détaillée'], ['docker history monimage:1.0', 'couches d\'une image'], ['docker commit web monimage:snap', 'image depuis un conteneur'], ['docker tag monimage:1.0 monimage:latest', 'ajoute un nom']]],
   ['Nettoyage', [
     ['docker rmi nginx', 'supprime une image'], ['docker container prune', 'supprime les conteneurs arrêtés'], ['docker image prune -a', 'supprime les images inutilisées'], ['docker system df', 'espace utilisé'], ['docker system prune', 'grand nettoyage']]],
   ['Dans le terminal', [
@@ -2802,7 +3230,11 @@ NS.execLines = function (lab, lines) {
   return out;
 };
 /* correction : dans l'interface, les commandes sont tapées dans le terminal ; sans terminal (tests), elles sont exécutées en silence */
-const solveWith = lines => (lab, term) => { if (term) term.runLines(lines); else NS.execLines(lab, lines); };
+const solveWith = NS.solveWith = lines => (lab, term) => { if (term) term.runLines(lines); else NS.execLines(lab, lines); };
+
+/* helpers de rédaction des TP : P = partie (cours + étapes), S = étape (consigne, pourquoi, résultat attendu, décryptage des options) */
+NS.tpP = (title, course, steps) => ({ title, course, steps });
+NS.tpS = (t, why, see, opts) => ({ t, why, see, opts });
 
 /* ------------------------------------------------ vérificateur : questions posées à l'état du laboratoire */
 NS.checker = function (lab) {
@@ -2826,6 +3258,11 @@ NS.checker = function (lab) {
     reach: (a, b) => { const x = lab.getContainer(a), y = lab.getContainer(b); return !!x && !!y && x.running && y.running && lab.canReach(x, y); },
     http(url, from) { const r = lab.httpFetch(from ? lab.getContainer(from) : null, url, {}); return r.err ? { ok: false, status: 0, body: '', err: r.err.msg } : { ok: r.res.status < 400, status: r.res.status, body: r.res.body || '' }; },
     hostFile: p => lab.hostFs.read(p),
+    logs: n => { const x = lab.getContainer(n); return x ? x.logs.map(l => l.text).join('\n') : ''; },
+    img: ref => lab.findImage(ref),
+    imgFile: (ref, p) => { const i = lab.findImage(ref); return i ? new NS.VFS(i.fs).read(p) : null; },
+    imgPkg: (ref, p) => { const i = lab.findImage(ref); return !!i && !!(i.pkgs || {})[p]; },
+    lastBuild: () => lab.lastBuild || null,
     inContainer: (n, p) => { const x = lab.getContainer(n); return x ? x.fs.read(p) : null; },
     count: kind => kind === 'containers' ? lab.containers.length : kind === 'running' ? lab.containers.filter(x => x.running).length : kind === 'exited' ? lab.containers.filter(x => x.state.status === 'exited' || x.state.status === 'created').length : kind === 'volumes' ? lab.volumes.length : kind === 'images' ? lab.images.length : 0,
     unusedVolumes: () => lab.volumes.filter(v => !lab.containers.some(x => x.mounts.some(m => m.name === v.name))).length,
@@ -2833,205 +3270,6 @@ NS.checker = function (lab) {
   };
   return c;
 };
-
-const diag = (txt) => '<div class="hint2">' + txt + '</div>';
-
-/* ================================================= Découverte */
-SC.push({
-  id: 'decouverte', diff: 1, cat: 'Découverte', level: 'Initiation', duration: '20 min', title: 'Première rencontre avec Docker',
-  desc: 'Vérifier que Docker fonctionne, télécharger une image, lancer un premier conteneur et lire l\'état de l\'hôte.',
-  objectives: ['Distinguer le client et le démon Docker', 'Différencier une image et un conteneur', 'Utiliser docker pull, run, images et ps'],
-  steps: [
-    'Affichez les versions avec <code>docker version</code> : il y a un <b>Client</b> (la commande que vous tapez) et un <b>Server</b> (le démon <code>dockerd</code> qui fait le travail).',
-    'Téléchargez l\'image <b>alpine</b> : <code>docker pull alpine</code>. Une image est un modèle en lecture seule, formé de couches.',
-    'Listez les images avec <code>docker images</code> : repérez le dépôt, le tag, l\'ID et la taille.',
-    'Lancez le conteneur de test : <code>docker run hello-world</code>. Docker va chercher l\'image tout seul puisqu\'elle est absente.',
-    'Listez <b>tous</b> les conteneurs : <code>docker ps -a</code>. Pourquoi « hello-world » est-il à l\'état <i>Exited (0)</i> ? (Cliquez sur « 💡 Pourquoi ? » après une commande pour comprendre.)',
-    'Relancez <code>docker run alpine echo bonjour</code> puis <code>docker ps -a</code> : chaque <code>run</code> crée un <b>nouveau</b> conteneur à partir de la même image.'],
-  build(lab) { },
-  solve: solveWith(['docker version', 'docker pull alpine', 'docker images', 'docker run hello-world', 'docker run alpine echo bonjour', 'docker ps -a']),
-  checks: [
-    { label: 'L\'image alpine est présente localement', run: c => c.image('alpine') },
-    { label: 'L\'image hello-world est présente localement (téléchargée par docker run)', run: c => c.image('hello-world') },
-    { label: 'Un conteneur issu de hello-world s\'est terminé normalement (Exited (0))', run: c => c.lab.containers.some(x => x.imageRef.startsWith('hello-world') && x.state.status === 'exited' && x.state.exitCode === 0) },
-    { label: 'Un conteneur alpine a exécuté « echo bonjour » (deux conteneurs distincts existent en tout)', run: c => c.lab.containers.some(x => x.imageRef.startsWith('alpine') && x.state.exitCode === 0) && c.count('containers') >= 2 },
-  ],
-});
-
-SC.push({
-  id: 'cycle-vie', diff: 1, cat: 'Découverte', level: 'Initiation', duration: '25 min', title: 'Le cycle de vie d\'un conteneur',
-  desc: 'Démarrer, observer, arrêter, redémarrer et supprimer des conteneurs. Un ancien site tourne déjà sur le port 8080 : vous devez le remplacer.',
-  objectives: ['Utiliser run -d, ps, logs, stop, start, rm', 'Comprendre les états Created / Up / Exited', 'Savoir pourquoi un nom ou un port est « déjà utilisé »'],
-  steps: [
-    'Observez l\'état de départ avec <code>docker ps -a</code> : un conteneur <b>test</b> tourne, un conteneur <b>ancien</b> est arrêté.',
-    'Essayez de lancer un nouveau serveur : <code>docker run -d --name web -p 8080:80 nginx</code>. Lisez l\'erreur : le port 8080 est déjà pris par « test ». Que devient le conteneur « web » ? (<code>docker ps -a</code>)',
-    'Arrêtez <b>test</b> : <code>docker stop test</code> (SIGTERM puis, au besoin, SIGKILL après 10 s).',
-    'Supprimez le conteneur « web » raté, puis relancez-le : <code>docker rm web</code> puis <code>docker run -d --name web -p 8080:80 nginx</code>.',
-    'Vérifiez avec <code>curl http://localhost:8080</code> et regardez les journaux : <code>docker logs web</code>.',
-    'Faites le ménage : supprimez <b>test</b> et <b>ancien</b> avec <code>docker rm</code>. Seul <b>web</b> doit rester.'],
-  build(lab) { NS.execLines(lab, ['docker run -d --name test -p 8080:80 nginx', 'docker run --name ancien alpine echo "ancienne version"']); },
-  solve: solveWith(['docker stop test', 'docker rm web', 'docker run -d --name web -p 8080:80 nginx', 'curl http://localhost:8080', 'docker rm test ancien', 'docker ps -a']),
-  checks: [
-    { label: 'Le conteneur « web » tourne et publie 8080 → 80', run: c => c.running('web') && c.published('web', 8080, 80) },
-    { label: 'http://localhost:8080 répond « Welcome to nginx! »', run: c => c.running('web') && c.http('http://localhost:8080').body.includes('Welcome to nginx!') },
-    { label: 'Le conteneur « test » a été supprimé', run: c => !c.exists('test') },
-    { label: 'Le conteneur « ancien » a été supprimé', run: c => !c.exists('ancien') },
-    { label: 'Il ne reste qu\'un seul conteneur', run: c => c.count('containers') === 1 },
-  ],
-});
-
-SC.push({
-  id: 'nettoyage', diff: 1, cat: 'Découverte', level: 'Initiation', duration: '15 min', title: 'Faire le ménage sur un hôte encombré',
-  desc: 'Un hôte Docker de développement déborde : conteneurs arrêtés, volumes oubliés, images inutilisées. Retrouvez de la place sans casser ce qui tourne.',
-  objectives: ['Mesurer l\'occupation avec docker system df', 'Utiliser les commandes prune', 'Savoir ce qu\'un prune supprime… et ce qu\'il épargne'],
-  steps: [
-    'Mesurez avec <code>docker system df</code> puis listez <code>docker ps -a</code>, <code>docker volume ls</code>, <code>docker images</code>.',
-    'Un conteneur <b>prod-web</b> tourne : il ne doit <b>pas</b> être touché.',
-    'Supprimez les conteneurs arrêtés : <code>docker container prune</code> (répondez <code>y</code>).',
-    'Supprimez les volumes que plus aucun conteneur n\'utilise : <code>docker volume prune</code> ne touche que les volumes <b>anonymes</b> (depuis Docker 23) ; pour les volumes nommés il faut <code>docker volume prune -a</code>. Le volume du conteneur qui tourne est épargné.',
-    'Supprimez les images inutilisées : <code>docker image prune -a</code>. L\'image de « prod-web » est conservée.',
-    'Relancez <code>docker system df</code> : l\'espace récupérable doit avoir fortement baissé.'],
-  build(lab) {
-    NS.execLines(lab, ['docker volume create vieux-donnees', 'docker run -d --name prod-web -p 8080:80 -v prod-data:/data nginx', 'docker run --name tmp1 alpine echo un', 'docker run --name tmp2 -v vieux-donnees:/d alpine echo deux', 'docker run --name tmp3 busybox echo trois', 'docker pull redis:7', 'docker pull httpd']);
-  },
-  solve: solveWith(['docker system df', 'docker container prune -f', 'docker volume prune -a -f', 'docker image prune -a -f', 'docker system df']),
-  checks: [
-    { label: 'Le conteneur « prod-web » tourne toujours', run: c => c.running('prod-web') },
-    { label: 'Plus aucun conteneur arrêté', run: c => c.count('exited') === 0 },
-    { label: 'Plus aucun volume inutilisé (prod-data, utilisé, est conservé)', run: c => c.unusedVolumes() === 0 && c.volume('prod-data') },
-    { label: 'Plus aucune image inutilisée (nginx, utilisée, est conservée)', run: c => c.unusedImages() === 0 && c.image('nginx') },
-  ],
-});
-
-/* ================================================= Conteneurs */
-SC.push({
-  id: 'ports-env', diff: 2, cat: 'Conteneurs', level: 'Intermédiaire', duration: '30 min', title: 'Publier des ports et configurer par variables',
-  desc: 'Deux sites web et une base de données doivent cohabiter sur le même hôte. Le port 8080 est déjà occupé : à vous d\'organiser les ports et de configurer PostgreSQL par variables d\'environnement.',
-  objectives: ['Publier un port avec -p hôte:conteneur', 'Éviter les conflits de ports', 'Configurer une image avec -e', 'Lire une erreur dans les journaux'],
-  steps: [
-    'Un site <b>site1</b> (nginx) occupe déjà le port 8080 de l\'hôte : <code>docker ps</code>.',
-    'Lancez un second site <b>site2</b> avec l\'image <b>httpd</b> (Apache) accessible sur l\'hôte au port <b>8081</b> : <code>docker run -d --name site2 -p 8081:80 httpd</code>. Testez avec <code>curl localhost:8081</code>.',
-    'Pourquoi le port du <i>conteneur</i> (80) peut-il être identique pour les deux sites ? Chaque conteneur a sa propre pile réseau ; seul le port de l\'<i>hôte</i> doit être unique.',
-    'Lancez une base <b>db</b> avec l\'image <b>postgres</b> : essayez d\'abord sans variable (<code>docker run -d --name db postgres</code>) et lisez <code>docker logs db</code> : le conteneur refuse de démarrer sans mot de passe.',
-    'Supprimez-le (<code>docker rm db</code>) et relancez-le correctement : <code>docker run -d --name db -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=appdb postgres</code>.',
-    'Vérifiez <code>docker ps</code> : trois conteneurs doivent tourner. <code>docker port site2</code> affiche la publication.'],
-  build(lab) { NS.execLines(lab, ['docker run -d --name site1 -p 8080:80 nginx']); },
-  solve: solveWith(['docker run -d --name site2 -p 8081:80 httpd', 'curl localhost:8081', 'docker run -d --name db postgres', 'docker logs db', 'docker rm db', 'docker run -d --name db -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=appdb postgres', 'docker ps']),
-  checks: [
-    { label: 'site1 (nginx) tourne toujours sur le port 8080', run: c => c.running('site1') && c.published('site1', 8080, 80) },
-    { label: 'site2 est un serveur httpd en cours d\'exécution', run: c => c.running('site2') && c.imageOf('site2') === 'httpd' },
-    { label: 'http://localhost:8081 répond « It works! »', run: c => c.http('http://localhost:8081').body.includes('It works!') },
-    { label: 'La base « db » (postgres) tourne', run: c => c.running('db') && c.imageOf('db') === 'postgres' },
-    { label: 'db est configurée avec POSTGRES_PASSWORD et POSTGRES_DB=appdb', run: c => !!c.env('db', 'POSTGRES_PASSWORD') && c.env('db', 'POSTGRES_DB') === 'appdb' },
-  ],
-});
-
-SC.push({
-  id: 'depannage', diff: 2, cat: 'Conteneurs', level: 'Intermédiaire', duration: '25 min', title: 'Dépannage : le conteneur qui s\'arrête tout seul',
-  desc: 'Une application de base de données ne démarre plus et un cache redémarre en boucle. Diagnostiquez avec logs, inspect et ps, puis réparez.',
-  objectives: ['Lire l\'état et le code de sortie d\'un conteneur', 'Utiliser docker logs et docker inspect pour diagnostiquer', 'Comprendre les politiques de redémarrage'],
-  steps: [
-    'Faites <code>docker ps -a</code> : la base <b>base-clients</b> est <i>Exited (1)</i>. Un code de sortie différent de 0 signale une erreur.',
-    'Cherchez la cause : <code>docker logs base-clients</code>.',
-    'Corrigez : un conteneur existant ne change pas de variables. Supprimez-le puis recréez-le <b>avec</b> le mot de passe : <code>docker rm base-clients</code> puis <code>docker run -d --name base-clients -e POSTGRES_PASSWORD=motdepasse postgres</code>.',
-    'Le conteneur <b>cache-fou</b> a une politique <code>--restart always</code> mais plante : observez <code>docker ps</code> (statut <i>Restarting</i>) et <code>docker inspect -f "{{.RestartCount}}" cache-fou</code>.',
-    'Arrêtez cette boucle en supprimant le conteneur de force : <code>docker rm -f cache-fou</code>.',
-    'Vérifiez qu\'il ne reste que <b>base-clients</b>, en cours d\'exécution.'],
-  build(lab) { NS.execLines(lab, ['docker run -d --name base-clients postgres', 'docker run -d --name cache-fou --restart always alpine sh -c "echo plantage; exit 3"']); lab.clock.runFor(4000); },
-  solve: solveWith(['docker logs base-clients', 'docker rm base-clients', 'docker run -d --name base-clients -e POSTGRES_PASSWORD=motdepasse postgres', 'docker rm -f cache-fou', 'docker ps -a']),
-  checks: [
-    { label: 'base-clients tourne', run: c => c.running('base-clients') },
-    { label: 'base-clients a reçu un mot de passe (POSTGRES_PASSWORD)', run: c => !!c.env('base-clients', 'POSTGRES_PASSWORD') },
-    { label: 'cache-fou a été supprimé (plus de boucle de redémarrage)', run: c => !c.exists('cache-fou') },
-  ],
-});
-
-/* ================================================= Données */
-SC.push({
-  id: 'volume-nomme', diff: 2, cat: 'Données', level: 'Intermédiaire', duration: '30 min', title: 'Volumes : garder ses données quand le conteneur disparaît',
-  desc: 'Un conteneur est jetable, pas ses données. Créez un site web dont le contenu survit à la suppression du conteneur grâce à un volume nommé.',
-  objectives: ['Distinguer système de fichiers du conteneur et volume', 'Créer et monter un volume nommé', 'Prouver la persistance en recréant le conteneur'],
-  steps: [
-    'Créez le volume : <code>docker volume create site</code> puis <code>docker volume ls</code>.',
-    'Lancez nginx avec ce volume monté sur le dossier du site : <code>docker run -d --name web -p 8080:80 -v site:/usr/share/nginx/html nginx</code>. (Au premier montage, le volume est rempli avec le contenu de l\'image.)',
-    'Modifiez la page : <code>docker exec web sh -c "echo Bonjour de Formaxion > /usr/share/nginx/html/index.html"</code> puis <code>curl localhost:8080</code>.',
-    '<b>Expérience :</b> supprimez le conteneur avec <code>docker rm -f web</code>. Le contenu est-il perdu ? Regardez <code>docker volume ls</code>.',
-    'Recréez un conteneur <b>web2</b> avec le <b>même volume</b> : <code>docker run -d --name web2 -p 8080:80 -v site:/usr/share/nginx/html nginx</code>. <code>curl localhost:8080</code> affiche toujours « Bonjour de Formaxion ».',
-    'Remarque : sans volume, tout ce qui est écrit dans un conteneur disparaît avec lui. Essayez, pour comparer, <code>docker run --rm alpine sh -c "echo x > /f; cat /f"</code> puis refaites un <code>run</code> : le fichier n\'existe plus.'],
-  build(lab) { },
-  solve: solveWith(['docker volume create site', 'docker run -d --name web -p 8080:80 -v site:/usr/share/nginx/html nginx', 'docker exec web sh -c "echo Bonjour de Formaxion > /usr/share/nginx/html/index.html"', 'curl localhost:8080', 'docker rm -f web', 'docker run -d --name web2 -p 8080:80 -v site:/usr/share/nginx/html nginx', 'curl localhost:8080']),
-  checks: [
-    { label: 'Le volume « site » existe', run: c => c.volume('site') },
-    { label: 'Le conteneur d\'origine « web » a été supprimé', run: c => !c.exists('web') },
-    { label: 'Un nouveau conteneur (web2) tourne avec le volume site monté sur /usr/share/nginx/html', run: c => c.running('web2') && c.mountsVolume('web2', 'site', '/usr/share/nginx/html') },
-    { label: 'http://localhost:8080 affiche encore « Bonjour de Formaxion »', run: c => c.http('http://localhost:8080').body.includes('Bonjour de Formaxion') },
-  ],
-});
-
-SC.push({
-  id: 'bind-mount', diff: 2, cat: 'Données', level: 'Intermédiaire', duration: '30 min', title: 'Monter un dossier de l\'hôte (bind mount)',
-  desc: 'Pendant le développement, on veut éditer ses fichiers sur l\'hôte et les voir immédiatement dans le conteneur. C\'est le rôle du bind mount.',
-  objectives: ['Créer des fichiers sur l\'hôte', 'Monter un dossier dans un conteneur avec -v chemin:chemin', 'Comprendre qu\'un bind mount masque le contenu de l\'image', 'Monter en lecture seule (:ro)'],
-  steps: [
-    'Créez un dossier de travail : <code>mkdir -p ~/monsite && cd ~/monsite</code>.',
-    'Écrivez une page : <code>echo "&lt;h1&gt;Mon site&lt;/h1&gt;" &gt; index.html</code> (ou ouvrez l\'onglet « Fichiers de l\'hôte », ou <code>nano index.html</code>).',
-    'Lancez nginx en montant ce dossier en <b>lecture seule</b> : <code>docker run -d --name dev -p 8080:80 -v ~/monsite:/usr/share/nginx/html:ro nginx</code> (utilisez le chemin absolu <code>/home/student/monsite</code> si votre shell ne développe pas le ~).',
-    'Testez : <code>curl localhost:8080</code> affiche « Mon site ». Le montage <b>masque</b> la page « Welcome to nginx » de l\'image.',
-    'Modifiez <code>index.html</code> sur l\'hôte (nouvel <code>echo</code>) : la page change <b>sans redémarrer</b> le conteneur.',
-    'Essayez d\'écrire depuis le conteneur : <code>docker exec dev sh -c "echo x &gt; /usr/share/nginx/html/test.txt"</code> → erreur « Read-only file system » grâce à <code>:ro</code>.'],
-  build(lab) { },
-  solve: solveWith(['mkdir -p /home/student/monsite', 'echo "<h1>Mon site</h1>" > /home/student/monsite/index.html', 'docker run -d --name dev -p 8080:80 -v /home/student/monsite:/usr/share/nginx/html:ro nginx', 'curl localhost:8080', 'docker exec dev sh -c "echo x > /usr/share/nginx/html/test.txt"']),
-  checks: [
-    { label: 'Un fichier index.html existe dans un dossier de votre répertoire personnel', run: c => /Mon site|<h1>/.test(c.hostFile('/home/student/monsite/index.html') || '') || c.lab.hostFs.list('/home/student').some(d => (c.hostFile('/home/student/' + d + '/index.html') || '').length > 0) },
-    { label: 'Le conteneur « dev » tourne avec un bind mount sur /usr/share/nginx/html', run: c => c.running('dev') && c.mountsBind('dev', '/usr/share/nginx/html') },
-    { label: 'Le montage est en lecture seule (:ro)', run: c => { const x = c.get('dev'); return !!x && x.mounts.some(m => m.type === 'bind' && m.destination === '/usr/share/nginx/html' && !m.rw); } },
-    { label: 'http://localhost:8080 sert votre page (et non « Welcome to nginx »)', run: c => { const b = c.http('http://localhost:8080').body; return b.length > 0 && !b.includes('Welcome to nginx'); } },
-  ],
-});
-
-/* ================================================= Réseau */
-SC.push({
-  id: 'reseau-dns', diff: 2, cat: 'Réseau', level: 'Intermédiaire', duration: '30 min', title: 'Réseaux Docker : faire dialoguer deux conteneurs par leur nom',
-  desc: 'Une API et un client tournent sur le réseau par défaut et ne peuvent pas se joindre par leur nom. Créez un réseau dédié pour activer la résolution DNS interne.',
-  objectives: ['Constater les limites du réseau bridge par défaut', 'Créer un réseau défini par l\'utilisateur', 'Utiliser la résolution de noms de Docker', 'Connecter un conteneur existant avec docker network connect'],
-  steps: [
-    'Observez : <code>docker ps</code> et <code>docker network ls</code>. Les conteneurs <b>api</b> (nginx) et <b>client</b> (alpine) sont sur le réseau <code>bridge</code> par défaut.',
-    'Entrez dans le client : <code>docker exec -it client sh</code> puis essayez <code>wget -qO- http://api</code> : le nom <b>n\'est pas résolu</b> (pas de DNS sur le bridge par défaut). Tapez <code>exit</code>.',
-    'Créez un réseau : <code>docker network create app-net</code> puis <code>docker network inspect app-net</code> (sous-réseau, passerelle).',
-    'Branchez les deux conteneurs : <code>docker network connect app-net api</code> et <code>docker network connect app-net client</code>.',
-    'Retestez depuis le client : <code>docker exec client wget -qO- http://api</code> → la page nginx s\'affiche : le nom « api » est résolu par le DNS embarqué de Docker (127.0.0.11).',
-    'Regardez les adresses : <code>docker inspect -f \'{{range $k,$v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}\' api</code> — le conteneur a maintenant <b>deux</b> adresses.'],
-  build(lab) { NS.execLines(lab, ['docker run -d --name api nginx', 'docker run -d --name client alpine sleep 3600']); },
-  solve: solveWith(['docker exec client wget -qO- http://api', 'docker network create app-net', 'docker network connect app-net api', 'docker network connect app-net client', 'docker exec client wget -qO- http://api']),
-  checks: [
-    { label: 'Le réseau « app-net » existe', run: c => c.network('app-net') },
-    { label: 'api est connecté à app-net', run: c => c.onNet('api', 'app-net') },
-    { label: 'client est connecté à app-net', run: c => c.onNet('client', 'app-net') },
-    { label: 'Depuis client, http://api répond (résolution par nom)', run: c => c.http('http://api', 'client').body.includes('Welcome to nginx') },
-  ],
-});
-
-SC.push({
-  id: 'isolation', diff: 3, cat: 'Réseau', level: 'Avancé', duration: '40 min', title: 'Isoler deux applications avec un conteneur passerelle',
-  desc: 'Deux applications (« compta » et « rh ») ne doivent pas se voir. Seul un conteneur « passerelle » peut parler aux deux. Vérifiez l\'isolation… et ses limites.',
-  objectives: ['Créer deux réseaux isolés', 'Rattacher un conteneur à plusieurs réseaux', 'Vérifier l\'isolation avec ping et wget', 'Comprendre le DNS par réseau'],
-  steps: [
-    'Créez deux réseaux : <code>docker network create reseau-compta</code> et <code>docker network create reseau-rh</code>.',
-    'Lancez <b>compta</b> (nginx) sur le premier et <b>rh</b> (nginx) sur le second : <code>docker run -d --name compta --network reseau-compta nginx</code> (idem pour rh).',
-    'Lancez un conteneur de test sur reseau-compta : <code>docker run -d --name passerelle --network reseau-compta alpine sleep 3600</code>.',
-    'Depuis <b>passerelle</b>, joignez <b>compta</b> : <code>docker exec passerelle wget -qO- http://compta</code> ✔. Puis tentez <b>rh</b> : <code>docker exec passerelle wget -qO- -T 2 http://rh</code> ✘ (nom inconnu : réseaux séparés).',
-    'Donnez à <b>passerelle</b> un second pied sur l\'autre réseau : <code>docker network connect reseau-rh passerelle</code>. Retentez : cette fois <b>rh</b> répond. Vous pouvez aussi tester <code>docker exec passerelle ping -c 1 rh</code>.',
-    'Vérifiez que <b>compta</b> et <b>rh</b>, eux, restent isolés l\'un de l\'autre : <code>docker network inspect reseau-rh</code> ne liste que <b>rh</b> et <b>passerelle</b>. Seul un conteneur placé sur les deux réseaux fait le pont.'],
-  build(lab) { },
-  solve: solveWith(['docker network create reseau-compta', 'docker network create reseau-rh', 'docker run -d --name compta --network reseau-compta nginx', 'docker run -d --name rh --network reseau-rh nginx', 'docker run -d --name passerelle --network reseau-compta alpine sleep 3600', 'docker network connect reseau-rh passerelle', 'docker exec passerelle wget -qO- http://compta', 'docker exec passerelle wget -qO- http://rh']),
-  checks: [
-    { label: 'Les deux réseaux existent', run: c => c.network('reseau-compta') && c.network('reseau-rh') },
-    { label: 'compta est uniquement sur reseau-compta, rh uniquement sur reseau-rh', run: c => c.onNet('compta', 'reseau-compta') && !c.get('compta').nets['reseau-rh'] && c.onNet('rh', 'reseau-rh') && !c.get('rh').nets['reseau-compta'] },
-    { label: 'passerelle est connectée aux deux réseaux', run: c => c.onNet('passerelle', 'reseau-compta') && c.onNet('passerelle', 'reseau-rh') },
-    { label: 'passerelle atteint compta et rh par leur nom', run: c => c.http('http://compta', 'passerelle').ok && c.http('http://rh', 'passerelle').ok },
-    { label: 'compta et rh ne peuvent pas se joindre', run: c => !c.reach('compta', 'rh') && !c.reach('rh', 'compta') },
-  ],
-});
 
 /* ================================================= Couverture et limites */
 NS.COVERAGE = {
@@ -3049,7 +3287,9 @@ NS.COVERAGE = {
     ['Bind mounts, lecture seule', 'ok', 'Bind mount', 'Écriture hôte limitée à /home/student et /tmp'],
     ['Réseaux : bridge, réseaux utilisateur, DNS embarqué, host, none', 'ok', 'Réseaux Docker, Isolation', 'Pas de perte de paquets ni de latence réaliste'],
     ['Nettoyage : prune, system df', 'ok', 'Nettoyage', ''],
-    ['Dockerfile et docker build', 'no', '—', 'Prévu (phase suivante)'],
+    ['Dockerfile : FROM, COPY, RUN, ENV, ARG, WORKDIR, CMD, ENTRYPOINT, EXPOSE, USER, LABEL, VOLUME', 'ok', 'Dockerfile, RUN-ENV-CMD, Cache', 'ONBUILD, ADD d\'une URL et RUN --mount non gérés'],
+    ['docker build : -t, -f, --build-arg, --no-cache, --target, -q, cache de couches, multi-étapes, .dockerignore', 'ok', 'Dockerfile, Cache', 'Sorties BuildKit imitées ; durées simulées'],
+    ['docker history, docker commit', 'ok', 'Dockerfile', 'Historique des images du catalogue : indicatif'],
     ['Docker Compose', 'no', '—', 'Prévu (phase suivante)'],
     ['Registres privés, docker login/push', 'no', '—', 'Hors périmètre pour l\'instant'],
     ['Docker Swarm, Kubernetes', 'no', '—', 'Hors périmètre'],
@@ -3060,11 +3300,402 @@ NS.LIMITS = [
   'Aucun vrai programme n\'est exécuté : nginx, httpd, redis, postgres et mysql sont des comportements scriptés (journaux de démarrage, réponses HTTP, commandes redis-cli basiques).',
   'Seules les images du catalogue existent (hello-world, alpine, busybox, ubuntu, debian, nginx, httpd, redis, postgres, mysql, mariadb, node, python). Les tags, identifiants, digests et tailles sont indicatifs.',
   'Les sorties et messages d\'erreur imitent Docker 27 ; quelques messages rares ont été reconstitués de mémoire et peuvent différer d\'un mot ou d\'une ponctuation.',
-  'Pas de docker build, de Dockerfile ni de Docker Compose pour l\'instant. Pas de docker login/push.',
+  'docker build est simulé (cache de couches, multi-étapes, .dockerignore, ARG) mais les messages d\'erreur de build (Dockerfile absent, erreur de syntaxe, fichier COPY introuvable, image de base refusée) ont été écrits de mémoire. Les tailles de couches sont estimées, et l\'historique des images du catalogue est indicatif. RUN --mount, ONBUILD et ADD d\'une URL ne sont pas gérés. Pas de Docker Compose pour l\'instant, ni de docker login/push.',
+  'Les programmes lancés par RUN et CMD sont ceux du mini-shell ; les interpréteurs python et node ne comprennent que les affichages (print, console.log), les variables d\'environnement et des variables simples. pip install et npm install sont simulés.',
+  'Supprimer une image de base utilisée par une image construite ne provoque pas le conflit de dépendance de Docker.',
   'Le réseau est simplifié : adressage, isolation et DNS sont fidèles, mais pas la latence ni les pertes de paquets.',
   'Le mini-shell couvre l\'essentiel (pipes, redirections, $(…), jokers, variables) mais pas les scripts avancés (boucles, fonctions).',
   'L\'hôte simulé n\'autorise l\'écriture que dans /home/student et /tmp, et le temps est simulé (démarrages, arrêts et redémarrages suivent une horloge réglable).',
 ];
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* tp_base.js — TP de base : découverte, conteneurs, données, réseau. Chaque TP mêle apports de cours, consignes, « pourquoi » et résultats attendus. */
+(function (g) {
+'use strict';
+const NS = g.NS; const SC = NS.SCENARIOS; const P = NS.tpP, S = NS.tpS, solveWith = NS.solveWith;
+
+/* ================================================= Découverte */
+SC.push({
+  id: 'decouverte', diff: 1, cat: 'Découverte', level: 'Initiation', duration: '25 min', title: 'Première rencontre avec Docker',
+  desc: 'Comprendre ce qu\'est un conteneur, la différence entre image et conteneur, et lancer son premier conteneur.',
+  objectives: ['Expliquer ce qu\'est un conteneur et en quoi il diffère d\'une machine virtuelle', 'Distinguer image et conteneur', 'Utiliser docker version, pull, images, run et ps'],
+  parts: [
+    P('Le client et le démon', [
+      '<b>Docker</b> est un logiciel qui lance des applications dans des <b>conteneurs</b> : des processus isolés du reste du système, avec leur propre système de fichiers, leur propre réseau et leurs propres processus visibles. Un conteneur n\'embarque pas de système d\'exploitation complet : il partage le <b>noyau</b> de la machine hôte. C\'est pourquoi il démarre en une seconde (une machine virtuelle emporte, elle, tout un système et met des dizaines de secondes).',
+      'Quand vous tapez <code>docker …</code>, vous utilisez le <b>client</b>. Il envoie vos ordres au <b>démon</b> (<code>dockerd</code>), un service qui tourne en arrière-plan et fait réellement le travail : télécharger, créer, démarrer, arrêter. Ils peuvent être sur deux machines différentes.'],
+    [S('Affichez les versions : <code>docker version</code>.', 'Pour vérifier que le client sait parler au démon : si le démon est éteint, vous n\'auriez que la partie « Client » et une erreur.', 'Deux blocs : <b>Client</b> et <b>Server</b> (le démon, « Docker Engine - Community »).')]),
+    P('Image et conteneur', [
+      'Une <b>image</b> est un modèle <b>en lecture seule</b> : un empilement de <b>couches</b> (système de base, bibliothèques, votre application). Un <b>conteneur</b> est une <b>instance</b> en cours d\'exécution (ou arrêtée) créée à partir d\'une image, avec une fine couche d\'écriture au-dessus.',
+      'Analogie : l\'image est la <i>classe</i> ou la <i>recette</i>, le conteneur est l\'<i>objet</i> ou le <i>gâteau</i>. Avec une même image, on peut créer autant de conteneurs qu\'on veut.',
+      'Les images viennent d\'un <b>registre</b> (ici Docker Hub, fictif dans le simulateur). Le nom complet d\'une image est <code>dépôt:tag</code> ; sans tag, Docker prend <code>latest</code>.'],
+    [S('Téléchargez l\'image <b>alpine</b> : <code>docker pull alpine</code>.', 'Alpine est une mini-distribution Linux (environ 8 Mo) très utilisée comme base. <b>pull</b> copie l\'image du registre vers votre machine, sans rien démarrer.', 'Une ligne « Pull complete » par couche, un <i>Digest</i> (empreinte unique de l\'image) et « Downloaded newer image for alpine:latest ».', [['pull', 'télécharger une image'], ['alpine', 'nom de l\'image ; équivaut à alpine:latest']]),
+     S('Listez les images locales : <code>docker images</code>.', 'Pour savoir ce que vous avez déjà sous la main (et ce que ça pèse sur le disque).', 'Une ligne alpine / latest avec un IMAGE ID de 12 caractères et une taille d\'environ 8 Mo.')]),
+    P('Lancer des conteneurs', [
+      '<code>docker run IMAGE [COMMANDE]</code> fait en réalité trois choses : (1) télécharge l\'image si elle est absente, (2) <b>crée</b> un nouveau conteneur, (3) le <b>démarre</b> en exécutant la commande demandée (ou celle par défaut de l\'image).',
+      'Le conteneur vit <b>tant que son processus principal tourne</b>. Dès que la commande se termine, le conteneur passe à l\'état <i>Exited</i>. Il n\'est pas supprimé pour autant : il reste visible avec <code>docker ps -a</code>.'],
+    [S('Lancez le conteneur de test : <code>docker run hello-world</code>.', 'C\'est l\'image officielle de vérification : elle affiche un message puis s\'arrête. Comme elle est absente, Docker la télécharge tout seul (étape 1 du run).', 'Le message « Hello from Docker! » avec l\'explication des étapes.'),
+     S('Lancez une commande dans alpine : <code>docker run alpine echo bonjour</code>.', 'Ici on remplace la commande par défaut de l\'image par <code>echo bonjour</code> : le conteneur exécute cette commande puis s\'arrête.', '« bonjour » s\'affiche aussitôt, sans nouveau téléchargement (l\'image est déjà là).', [['alpine', 'l\'image'], ['echo bonjour', 'la commande à exécuter dans le conteneur']]),
+     S('Listez <b>tous</b> les conteneurs : <code>docker ps -a</code>.', 'Sans <code>-a</code>, <code>docker ps</code> ne montre que les conteneurs en cours d\'exécution, donc rien ici : les deux sont terminés.', 'Deux conteneurs au statut <i>Exited (0) …</i>. Le code 0 signifie « terminé sans erreur ». Remarquez aussi leurs noms inventés par Docker (adjectif_nom).', [['-a', '« all » : inclut les conteneurs arrêtés']])]),
+  ],
+  recap: ['Client (la commande) ≠ démon (le service qui travaille).', 'Une image est un modèle en lecture seule ; un conteneur en est une instance.', 'docker run = pull si besoin + create + start.', 'Un conteneur s\'arrête quand son processus principal se termine, mais n\'est pas supprimé : docker ps -a le montre.'],
+  build(lab) { },
+  solve: solveWith(['docker version', 'docker pull alpine', 'docker images', 'docker run hello-world', 'docker run alpine echo bonjour', 'docker ps -a']),
+  checks: [
+    { label: 'L\'image alpine est présente localement', run: c => c.image('alpine') },
+    { label: 'L\'image hello-world est présente localement (téléchargée par docker run)', run: c => c.image('hello-world') },
+    { label: 'Un conteneur issu de hello-world s\'est terminé normalement (Exited (0))', run: c => c.lab.containers.some(x => x.imageRef.startsWith('hello-world') && x.state.status === 'exited' && x.state.exitCode === 0) },
+    { label: 'Un conteneur alpine a exécuté « echo bonjour » (deux conteneurs distincts existent en tout)', run: c => c.lab.containers.some(x => x.imageRef.startsWith('alpine') && x.state.exitCode === 0) && c.count('containers') >= 2 },
+  ],
+});
+
+SC.push({
+  id: 'cycle-vie', diff: 1, cat: 'Découverte', level: 'Initiation', duration: '30 min', title: 'Le cycle de vie d\'un conteneur',
+  desc: 'Démarrer, observer, arrêter, redémarrer et supprimer des conteneurs. Un ancien site tourne déjà sur le port 8080 : vous devez le remplacer.',
+  objectives: ['Citer les états d\'un conteneur (Created, Up, Exited) et les transitions', 'Utiliser run -d, ps, logs, stop, start, rm', 'Comprendre pourquoi un port ou un nom est « déjà utilisé »'],
+  parts: [
+    P('Les états d\'un conteneur', [
+      'Un conteneur passe par plusieurs états : <b>Created</b> (créé, pas démarré) → <b>Up</b> (en cours) → <b>Exited</b> (terminé). On peut le redémarrer (<code>start</code>) autant de fois qu\'on veut ; il garde son identité, sa configuration et ses données. Seul <code>rm</code> le détruit.',
+      '<code>docker stop</code> envoie d\'abord le signal <b>SIGTERM</b> (« arrête-toi proprement ») puis, si le processus n\'obéit pas au bout de 10 secondes, <b>SIGKILL</b> (arrêt brutal, code de sortie 137). <code>docker kill</code> envoie directement SIGKILL.'],
+    [S('Observez l\'état de départ : <code>docker ps -a</code>.', 'Avant d\'agir sur un système, on regarde toujours ce qui existe déjà.', 'Un conteneur <b>test</b> en cours (Up, port 8080) et un conteneur <b>ancien</b> arrêté (Exited (0)).')]),
+    P('Publier un port', [
+      'Un conteneur a sa propre pile réseau : un serveur web qui écoute sur son port 80 n\'est <b>pas</b> joignable depuis l\'hôte par défaut. L\'option <code>-p HÔTE:CONTENEUR</code> publie un port : <code>-p 8080:80</code> signifie « ce qui arrive sur le port 8080 de l\'hôte est envoyé au port 80 du conteneur ».',
+      'Un port de l\'hôte ne peut être utilisé que par <b>un seul</b> programme à la fois. Si deux conteneurs demandent 8080, le second échoue : c\'est le conflit de port.'],
+    [S('Essayez de lancer un nouveau serveur web : <code>docker run -d --name web -p 8080:80 nginx</code>.', 'On veut remplacer l\'ancien site. Mais le port 8080 est déjà pris par « test » : vous allez voir une erreur, et c\'est voulu !', 'Après le téléchargement de nginx, une erreur « Bind for 0.0.0.0:8080 failed: <b>port is already allocated</b> ».', [['-d', '« detached » : le conteneur tourne en arrière-plan et rend la main au terminal'], ['--name web', 'donne un nom lisible (sinon nom aléatoire)'], ['-p 8080:80', 'publie le port 80 du conteneur sur le port 8080 de l\'hôte'], ['nginx', 'l\'image : un serveur web']]),
+     S('Regardez ce qu\'est devenu « web » : <code>docker ps -a</code>.', 'Docker a bien <b>créé</b> le conteneur avant d\'échouer à le démarrer : il reste donc dans l\'état Created et occupe le nom « web ».', 'Une ligne <b>web</b> au statut <i>Created</i>, sans ports.')]),
+    P('Arrêter, supprimer, recréer', [
+      'Pour libérer le port : on arrête « test ». Pour réutiliser le nom « web » : on supprime le conteneur raté. <code>docker rm</code> refuse de supprimer un conteneur qui tourne, sauf avec <code>-f</code> (force : kill puis suppression).'],
+    [S('Arrêtez <b>test</b> : <code>docker stop test</code>.', 'Cela libère le port 8080. nginx comprend SIGTERM et s\'arrête immédiatement.', 'Le nom « test » s\'affiche. <code>docker ps</code> ne le montre plus.'),
+     S('Supprimez le conteneur raté puis recréez-le : <code>docker rm web</code> puis <code>docker run -d --name web -p 8080:80 nginx</code>.', 'Impossible de réutiliser le nom « web » tant que l\'ancien conteneur existe, même arrêté. Le nom est libéré par la suppression.', 'Cette fois, un long identifiant (64 caractères) : le conteneur tourne.'),
+     S('Testez : <code>curl http://localhost:8080</code> puis <code>docker logs web</code>.', 'curl joue le rôle d\'un navigateur : il prouve que la publication de port fonctionne. <code>logs</code> affiche ce que le processus du conteneur a écrit sur sa sortie.', 'Le HTML « Welcome to nginx! » ; dans les journaux, la ligne d\'accès « GET / HTTP/1.1 » 200.')]),
+    P('Faire le ménage', [
+      'Les conteneurs arrêtés s\'accumulent et occupent de la place : bonne pratique, on supprime ce dont on n\'a plus besoin. <code>docker rm</code> accepte plusieurs noms à la suite.'],
+    [S('Supprimez les anciens : <code>docker rm test ancien</code>. Vérifiez avec <code>docker ps -a</code>.', 'Il ne doit rester que le conteneur « web », celui qui sert votre site.', 'Les noms supprimés s\'affichent ; seul <b>web</b> reste, en <i>Up</i>.')]),
+  ],
+  recap: ['Created → Up → Exited ; start le relance, rm le détruit.', 'stop = SIGTERM puis SIGKILL après 10 s ; kill = SIGKILL tout de suite.', '-p hôte:conteneur publie un port ; un port d\'hôte ne sert qu\'à un seul conteneur.', 'Un nom de conteneur est unique : il faut supprimer l\'ancien pour le réutiliser.'],
+  build(lab) { NS.execLines(lab, ['docker run -d --name test -p 8080:80 nginx', 'docker run --name ancien alpine echo "ancienne version"']); },
+  solve: solveWith(['docker stop test', 'docker rm web', 'docker run -d --name web -p 8080:80 nginx', 'curl http://localhost:8080', 'docker rm test ancien', 'docker ps -a']),
+  checks: [
+    { label: 'Le conteneur « web » tourne et publie 8080 → 80', run: c => c.running('web') && c.published('web', 8080, 80) },
+    { label: 'http://localhost:8080 répond « Welcome to nginx! »', run: c => c.running('web') && c.http('http://localhost:8080').body.includes('Welcome to nginx!') },
+    { label: 'Le conteneur « test » a été supprimé', run: c => !c.exists('test') },
+    { label: 'Le conteneur « ancien » a été supprimé', run: c => !c.exists('ancien') },
+    { label: 'Il ne reste qu\'un seul conteneur', run: c => c.count('containers') === 1 },
+  ],
+});
+
+SC.push({
+  id: 'nettoyage', diff: 1, cat: 'Découverte', level: 'Initiation', duration: '20 min', title: 'Faire le ménage sur un hôte encombré',
+  desc: 'Un hôte Docker de développement déborde : conteneurs arrêtés, volumes oubliés, images inutilisées. Retrouvez de la place sans casser ce qui tourne.',
+  objectives: ['Mesurer l\'occupation disque avec docker system df', 'Utiliser les commandes prune', 'Savoir ce qu\'un prune supprime… et ce qu\'il épargne'],
+  parts: [
+    P('Ce qui consomme de la place', [
+      'Docker ne supprime jamais rien tout seul. Trois choses s\'accumulent : les <b>conteneurs arrêtés</b> (leur couche d\'écriture et leurs journaux), les <b>images</b> téléchargées ou construites, et les <b>volumes</b> (données persistantes). Sur une machine de développement, cela finit par représenter des gigaoctets.',
+      'Les commandes <code>prune</code> suppriment ce qui est <b>inutilisé</b> : « inutilisé » veut dire qu\'aucun conteneur (en cours ou arrêté) n\'y fait référence. Elles ne touchent donc pas à ce qui sert.'],
+    [S('Mesurez l\'occupation : <code>docker system df</code>, puis regardez <code>docker ps -a</code>, <code>docker volume ls</code> et <code>docker images</code>.', 'Avant de supprimer, on mesure et on regarde : un prune est irréversible.', 'Un tableau avec les colonnes TOTAL, ACTIVE, SIZE et RECLAIMABLE (« récupérable »). Un seul conteneur, <b>prod-web</b>, tourne : il ne doit surtout pas être touché.')]),
+    P('Nettoyer méthodiquement', [
+      '<b>L\'ordre compte</b> : une image ou un volume utilisé par un conteneur arrêté n\'est pas « inutilisé ». On supprime donc d\'abord les conteneurs, puis les volumes, puis les images.',
+      'Piège classique : depuis Docker 23, <code>docker volume prune</code> ne supprime que les volumes <b>anonymes</b>. Pour les volumes <b>nommés</b> il faut ajouter <code>-a</code> (« all »), car un volume nommé a été créé volontairement.'],
+    [S('Supprimez les conteneurs arrêtés : <code>docker container prune</code> (répondez <code>y</code>).', 'Docker demande confirmation car l\'opération est définitive.', 'Une liste « Deleted Containers » et « Total reclaimed space ». prod-web n\'est pas dans la liste : il tourne.'),
+     S('Supprimez les volumes inutilisés : <code>docker volume prune -a</code> (répondez <code>y</code>).', 'Maintenant que les conteneurs arrêtés ont disparu, le volume « vieux-donnees » n\'est plus utilisé par personne. Avec <code>-a</code> les volumes nommés sont inclus ; celui de prod-web est épargné car il sert.', 'Seul « vieux-donnees » est supprimé.', [['-a', 'inclut les volumes nommés (pas seulement les anonymes)']]),
+     S('Supprimez les images inutilisées : <code>docker image prune -a</code> (répondez <code>y</code>).', 'Sans <code>-a</code>, seules les images « dangling » (sans nom) partent. Avec <code>-a</code>, toute image qu\'aucun conteneur n\'utilise est supprimée. nginx est conservée car prod-web l\'utilise.', 'Les images alpine, busybox, redis et httpd sont supprimées ; nginx reste.'),
+     S('Contrôlez : <code>docker system df</code>.', 'Pour vérifier le résultat avec la même mesure qu\'au départ.', 'La colonne RECLAIMABLE est retombée à 0 ou presque.')]),
+  ],
+  recap: ['Docker ne supprime rien de lui-même : à vous de nettoyer.', 'prune supprime l\'inutilisé (référencé par aucun conteneur) et épargne ce qui sert.', 'Ordre : conteneurs → volumes → images.', 'volume prune sans -a : seulement les volumes anonymes (Docker ≥ 23).'],
+  build(lab) { NS.execLines(lab, ['docker volume create vieux-donnees', 'docker run -d --name prod-web -p 8080:80 -v prod-data:/data nginx', 'docker run --name tmp1 alpine echo un', 'docker run --name tmp2 -v vieux-donnees:/d alpine echo deux', 'docker run --name tmp3 busybox echo trois', 'docker pull redis:7', 'docker pull httpd']); },
+  solve: solveWith(['docker system df', 'docker container prune -f', 'docker volume prune -a -f', 'docker image prune -a -f', 'docker system df']),
+  checks: [
+    { label: 'Le conteneur « prod-web » tourne toujours', run: c => c.running('prod-web') },
+    { label: 'Plus aucun conteneur arrêté', run: c => c.count('exited') === 0 },
+    { label: 'Plus aucun volume inutilisé (prod-data, utilisé, est conservé)', run: c => c.unusedVolumes() === 0 && c.volume('prod-data') },
+    { label: 'Plus aucune image inutilisée (nginx, utilisée, est conservée)', run: c => c.unusedImages() === 0 && c.image('nginx') },
+  ],
+});
+
+/* ================================================= Conteneurs */
+SC.push({
+  id: 'ports-env', diff: 2, cat: 'Conteneurs', level: 'Intermédiaire', duration: '35 min', title: 'Publier des ports et configurer par variables',
+  desc: 'Deux sites web et une base de données doivent cohabiter. Le port 8080 est déjà occupé : organisez les ports et configurez PostgreSQL par variables d\'environnement.',
+  objectives: ['Publier un port avec -p et éviter les conflits', 'Configurer une image avec -e', 'Diagnostiquer un démarrage raté avec docker logs'],
+  parts: [
+    P('Plusieurs conteneurs, un seul hôte', [
+      'Chaque conteneur a sa <b>propre pile réseau</b> : deux conteneurs peuvent tous les deux écouter sur leur port 80 sans se gêner. Mais l\'hôte n\'a qu\'un seul port 8080 : en publiant, vous devez choisir des ports d\'hôte <b>différents</b> (8080, 8081…) vers le même port 80 de conteneur.',
+      '<code>docker port NOM</code> rappelle la correspondance de ports d\'un conteneur.'],
+    [S('Regardez ce qui tourne : <code>docker ps</code>.', 'Il faut connaître les ports déjà pris avant d\'en choisir un.', 'Le conteneur <b>site1</b> (nginx) occupe 8080.'),
+     S('Lancez un second site avec Apache sur le port 8081 : <code>docker run -d --name site2 -p 8081:80 httpd</code>.', 'httpd (Apache) écoute aussi sur le port 80 <i>dans</i> son conteneur ; on le publie sur 8081 côté hôte pour éviter le conflit avec site1.', 'Un identifiant long. Testez : <code>curl localhost:8081</code> affiche « It works! ».'),
+     S('Vérifiez la publication : <code>docker port site2</code>.', 'Pour lire la correspondance sans deviner.', '« 80/tcp -> 0.0.0.0:8081 »')]),
+    P('Configurer un conteneur : les variables d\'environnement', [
+      'Une image est un modèle <b>générique</b> : on l\'adapte au démarrage avec des <b>variables d\'environnement</b>, passées par <code>-e NOM=valeur</code>. Aucun fichier à modifier, rien à reconstruire. C\'est le mécanisme standard de configuration des conteneurs.',
+      'L\'image <b>postgres</b> exige par exemple <code>POSTGRES_PASSWORD</code> (le mot de passe du super-utilisateur) ; elle accepte aussi <code>POSTGRES_DB</code> (nom d\'une base à créer). Si le mot de passe manque, le conteneur refuse de démarrer.'],
+    [S('Lancez une base <b>sans</b> variable : <code>docker run -d --name db postgres</code>, puis lisez <code>docker logs db</code>.', 'C\'est volontaire : savoir lire l\'échec est une compétence essentielle. Le conteneur démarre puis s\'arrête immédiatement.', 'Dans les journaux : « Database is uninitialized and superuser password is not specified ». <code>docker ps -a</code> montre <i>Exited (1)</i> : un code différent de 0 indique une erreur.'),
+     S('Supprimez-le puis recréez-le correctement : <code>docker rm db</code> puis <code>docker run -d --name db -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=appdb postgres</code>.', 'On ne peut pas ajouter une variable à un conteneur existant : on le recrée. Le nom « db » doit être libéré d\'abord.', 'Cette fois le conteneur reste <i>Up</i>. <code>docker logs db</code> se termine par « database system is ready to accept connections ».', [['-e POSTGRES_PASSWORD=secret', 'définit la variable (le mot de passe)'], ['-e POSTGRES_DB=appdb', 'crée une base nommée appdb au premier démarrage']]),
+     S('Contrôlez l\'ensemble : <code>docker ps</code>.', 'Trois services doivent tourner de front.', 'site1, site2 et db en <i>Up</i>.')]),
+  ],
+  recap: ['Ports de conteneur identiques, ports d\'hôte différents.', '-e NOM=valeur configure un conteneur au démarrage.', 'Un conteneur qui s\'arrête aussitôt : docker logs puis le code de sortie disent pourquoi.', 'Pour changer une variable, on recrée le conteneur.'],
+  build(lab) { NS.execLines(lab, ['docker run -d --name site1 -p 8080:80 nginx']); },
+  solve: solveWith(['docker run -d --name site2 -p 8081:80 httpd', 'curl localhost:8081', 'docker run -d --name db postgres', 'docker logs db', 'docker rm db', 'docker run -d --name db -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=appdb postgres', 'docker ps']),
+  checks: [
+    { label: 'site1 (nginx) tourne toujours sur le port 8080', run: c => c.running('site1') && c.published('site1', 8080, 80) },
+    { label: 'site2 est un serveur httpd en cours d\'exécution', run: c => c.running('site2') && c.imageOf('site2') === 'httpd' },
+    { label: 'http://localhost:8081 répond « It works! »', run: c => c.http('http://localhost:8081').body.includes('It works!') },
+    { label: 'La base « db » (postgres) tourne', run: c => c.running('db') && c.imageOf('db') === 'postgres' },
+    { label: 'db est configurée avec POSTGRES_PASSWORD et POSTGRES_DB=appdb', run: c => !!c.env('db', 'POSTGRES_PASSWORD') && c.env('db', 'POSTGRES_DB') === 'appdb' },
+  ],
+});
+
+SC.push({
+  id: 'depannage', diff: 2, cat: 'Conteneurs', level: 'Intermédiaire', duration: '30 min', title: 'Dépannage : le conteneur qui s\'arrête tout seul',
+  desc: 'Une base de données ne démarre plus et un conteneur redémarre en boucle. Diagnostiquez avec ps, logs et inspect, puis réparez.',
+  objectives: ['Lire l\'état et le code de sortie d\'un conteneur', 'Utiliser logs et inspect pour trouver une cause', 'Comprendre les politiques de redémarrage'],
+  parts: [
+    P('Méthode de diagnostic', [
+      'Devant un conteneur en panne, on suit toujours le même fil : <b>1) l\'état</b> (<code>docker ps -a</code>) ; <b>2) les journaux</b> (<code>docker logs</code>) qui contiennent presque toujours le message d\'erreur ; <b>3) la configuration</b> (<code>docker inspect</code>) si le journal ne suffit pas.',
+      'Le <b>code de sortie</b> donne une indication : 0 = fin normale, 1 = erreur générale de l\'application, 125-127 = Docker ou la commande n\'a pas pu démarrer, 137 = tué (SIGKILL), 143 = arrêté proprement (SIGTERM).'],
+    [S('Observez : <code>docker ps -a</code>.', 'Première étape de toute enquête.', '<b>base-clients</b> est <i>Exited (1)</i> ; <b>cache-fou</b> est <i>Restarting</i>.'),
+     S('Cherchez la cause : <code>docker logs base-clients</code>.', 'Le démarrage de la base a laissé un message : c\'est là qu\'on trouve la raison.', 'Un message qui commence par « Error: Database is uninitialized and superuser password is not specified ».')]),
+    P('Réparer', [
+      'Les variables d\'environnement d\'un conteneur sont fixées à sa création. Pour en changer, on <b>supprime et recrée</b> le conteneur (les données, elles, survivent si elles sont dans un volume).'],
+    [S('Recréez la base avec un mot de passe : <code>docker rm base-clients</code> puis <code>docker run -d --name base-clients -e POSTGRES_PASSWORD=motdepasse postgres</code>.', 'La cause était le mot de passe manquant ; on le fournit avec -e, comme dans le TP précédent.', 'Le conteneur reste <i>Up</i>.')]),
+    P('Les politiques de redémarrage', [
+      'L\'option <code>--restart</code> dit à Docker quoi faire quand le processus s\'arrête : <code>no</code> (défaut : rien), <code>on-failure[:N]</code> (relancer si code ≠ 0, N fois au plus), <code>always</code> (toujours relancer) et <code>unless-stopped</code> (toujours, sauf si vous l\'avez arrêté vous-même).',
+      'Utile pour un serveur qui doit rester disponible. Mais si le programme plante dès le départ, <b>Docker le relance indéfiniment</b>, avec un délai qui double à chaque essai : c\'est une boucle de redémarrage.'],
+    [S('Observez la boucle : <code>docker ps</code> puis <code>docker inspect -f "{{.RestartCount}}" cache-fou</code>.', '<code>-f</code> (format) extrait un champ précis du JSON d\'inspect, ici le nombre de redémarrages déjà effectués.', 'Statut <i>Restarting (3)</i> et un compteur qui augmente à chaque essai.', [['inspect', 'affiche la configuration complète (JSON)'], ['-f "{{.RestartCount}}"', 'gabarit Go : ne garde que le champ RestartCount']]),
+     S('Arrêtez la boucle : <code>docker rm -f cache-fou</code>.', 'Un conteneur en boucle ne se laisse pas supprimer sans <code>-f</code> (il faut d\'abord l\'arrêter).', 'Le nom s\'affiche. <code>docker ps -a</code> ne montre plus que <b>base-clients</b>, en <i>Up</i>.')]),
+  ],
+  recap: ['Diagnostic : ps -a → logs → inspect.', 'Code de sortie ≠ 0 : erreur ; 137 = SIGKILL.', 'Les variables d\'un conteneur se changent en le recréant.', '--restart always relance sans fin un programme qui plante : surveillez RestartCount.'],
+  build(lab) { NS.execLines(lab, ['docker run -d --name base-clients postgres', 'docker run -d --name cache-fou --restart always alpine sh -c "echo plantage; exit 3"']); lab.clock.runFor(4000); },
+  solve: solveWith(['docker logs base-clients', 'docker rm base-clients', 'docker run -d --name base-clients -e POSTGRES_PASSWORD=motdepasse postgres', 'docker rm -f cache-fou', 'docker ps -a']),
+  checks: [
+    { label: 'base-clients tourne', run: c => c.running('base-clients') },
+    { label: 'base-clients a reçu un mot de passe (POSTGRES_PASSWORD)', run: c => !!c.env('base-clients', 'POSTGRES_PASSWORD') },
+    { label: 'cache-fou a été supprimé (plus de boucle de redémarrage)', run: c => !c.exists('cache-fou') },
+  ],
+});
+
+/* ================================================= Données */
+SC.push({
+  id: 'volume-nomme', diff: 2, cat: 'Données', level: 'Intermédiaire', duration: '35 min', title: 'Volumes : garder ses données quand le conteneur disparaît',
+  desc: 'Un conteneur est jetable, pas ses données. Faites survivre un site web à la suppression de son conteneur grâce à un volume nommé.',
+  objectives: ['Expliquer pourquoi les données d\'un conteneur sont éphémères', 'Créer et monter un volume nommé', 'Prouver la persistance en recréant le conteneur'],
+  parts: [
+    P('Pourquoi des volumes ?', [
+      'Tout ce qu\'un conteneur écrit dans son système de fichiers va dans sa fine <b>couche d\'écriture</b>, qui est <b>détruite avec le conteneur</b>. C\'est voulu : on peut jeter et recréer un conteneur à volonté. Mais pour une base de données ou un site modifiable, il faut des données qui <b>survivent</b>.',
+      'Un <b>volume</b> est un espace de stockage géré par Docker, indépendant des conteneurs. On le <b>monte</b> à un endroit du conteneur avec <code>-v NOM:CHEMIN</code> : tout ce qui est écrit dans ce dossier va dans le volume. Quand le conteneur disparaît, le volume reste et peut être remonté dans un autre.',
+      'Au tout premier montage d\'un volume vide, Docker le <b>remplit avec le contenu que l\'image avait déjà à cet endroit</b> (ici la page d\'accueil de nginx).'],
+    [S('Créez le volume : <code>docker volume create site</code> puis <code>docker volume ls</code>.', 'On pourrait laisser <code>run</code> le créer automatiquement ; le créer soi-même rend l\'étape visible.', 'Une ligne <code>local  site</code> dans la liste.', [['volume create site', 'crée un volume nommé « site »'], ['local', 'pilote de stockage : sur le disque de l\'hôte']]),
+     S('Lancez nginx avec ce volume : <code>docker run -d --name web -p 8080:80 -v site:/usr/share/nginx/html nginx</code>.', '/usr/share/nginx/html est le dossier que nginx publie. En y montant le volume, on rend le site persistant.', 'Un identifiant long, puis <code>curl localhost:8080</code> affiche la page nginx par défaut (copiée dans le volume au premier montage).', [['-v site:/usr/share/nginx/html', 'monte le volume « site » sur ce dossier du conteneur']])]),
+    P('Modifier puis détruire', [
+      'On va maintenant écrire dans le volume depuis l\'intérieur du conteneur avec <code>docker exec</code> (exécuter une commande dans un conteneur <b>déjà en cours</b>), puis détruire le conteneur pour vérifier que la donnée survit.'],
+    [S('Changez la page : <code>docker exec web sh -c "echo Bonjour de Formaxion &gt; /usr/share/nginx/html/index.html"</code> puis <code>curl localhost:8080</code>.', 'On passe par <code>sh -c</code> pour que la redirection <code>&gt;</code> soit exécutée <i>dans</i> le conteneur et non sur l\'hôte.', 'curl affiche « Bonjour de Formaxion ».', [['exec web', 'exécute dans le conteneur « web »'], ['sh -c "…"', 'lance un shell qui exécute la chaîne entre guillemets']]),
+     S('<b>Expérience :</b> supprimez le conteneur : <code>docker rm -f web</code>, puis <code>docker volume ls</code>.', 'On détruit le conteneur pour voir si la donnée disparaît avec lui.', 'Le conteneur a disparu, mais le volume <b>site</b> est toujours là.'),
+     S('Recréez un conteneur <b>web2</b> avec le <b>même volume</b> : <code>docker run -d --name web2 -p 8080:80 -v site:/usr/share/nginx/html nginx</code>, puis <code>curl localhost:8080</code>.', 'Un nouveau conteneur, une nouvelle couche d\'écriture — mais le volume est le même.', 'curl affiche toujours « Bonjour de Formaxion » : la donnée a survécu.')]),
+    P('Pour comparer : sans volume', [
+      'Sans <code>-v</code>, ce qu\'on écrit disparaît avec le conteneur. <code>--rm</code> supprime le conteneur à sa fin, ce qui rend l\'expérience immédiate.'],
+    [S('Essayez : <code>docker run --rm alpine sh -c "echo x &gt; /f; cat /f"</code> puis <code>docker run --rm alpine cat /f</code>.', 'Le premier conteneur écrit et lit son fichier ; le second est un conteneur neuf, sans ce fichier.', 'Le premier affiche « x » ; le second : « cat: can\'t open \'/f\': No such file or directory ».')]),
+  ],
+  recap: ['Les données écrites dans un conteneur sont détruites avec lui.', 'Un volume (-v nom:chemin) vit indépendamment des conteneurs.', 'Premier montage : le volume est initialisé avec le contenu de l\'image.', 'docker exec lance une commande dans un conteneur en cours d\'exécution.'],
+  build(lab) { },
+  solve: solveWith(['docker volume create site', 'docker run -d --name web -p 8080:80 -v site:/usr/share/nginx/html nginx', 'docker exec web sh -c "echo Bonjour de Formaxion > /usr/share/nginx/html/index.html"', 'curl localhost:8080', 'docker rm -f web', 'docker run -d --name web2 -p 8080:80 -v site:/usr/share/nginx/html nginx', 'curl localhost:8080']),
+  checks: [
+    { label: 'Le volume « site » existe', run: c => c.volume('site') },
+    { label: 'Le conteneur d\'origine « web » a été supprimé', run: c => !c.exists('web') },
+    { label: 'Un nouveau conteneur (web2) tourne avec le volume site monté sur /usr/share/nginx/html', run: c => c.running('web2') && c.mountsVolume('web2', 'site', '/usr/share/nginx/html') },
+    { label: 'http://localhost:8080 affiche encore « Bonjour de Formaxion »', run: c => c.http('http://localhost:8080').body.includes('Bonjour de Formaxion') },
+  ],
+});
+
+SC.push({
+  id: 'bind-mount', diff: 2, cat: 'Données', level: 'Intermédiaire', duration: '35 min', title: 'Monter un dossier de l\'hôte (bind mount)',
+  desc: 'En développement, on édite ses fichiers sur l\'hôte et on veut les voir aussitôt dans le conteneur : c\'est le rôle du bind mount.',
+  objectives: ['Distinguer volume nommé et bind mount', 'Monter un dossier de l\'hôte, en lecture seule', 'Comprendre qu\'un montage masque le contenu de l\'image'],
+  parts: [
+    P('Volume ou bind mount ?', [
+      'Un <b>bind mount</b> relie un dossier <b>précis de l\'hôte</b> à un dossier du conteneur : <code>-v /chemin/hôte:/chemin/conteneur</code>. Les deux voient exactement les mêmes fichiers. C\'est idéal en développement (vous éditez avec votre éditeur habituel, le conteneur voit la modification immédiatement).',
+      'Différences avec un volume nommé : le bind mount utilise un chemin que <b>vous</b> choisissez (le volume est géré par Docker) ; il <b>masque</b> le contenu de l\'image à cet endroit (le volume est initialisé avec lui) ; il dépend de l\'organisation de l\'hôte, donc il est moins portable.',
+      'Ajouter <code>:ro</code> monte en <b>lecture seule</b> : le conteneur peut lire mais pas modifier. Bonne pratique de sécurité pour du contenu qu\'il n\'a pas à changer.'],
+    [S('Créez un dossier de travail : <code>mkdir -p ~/monsite &amp;&amp; cd ~/monsite</code>.', 'Il faut d\'abord un dossier sur l\'hôte à partager. <code>~</code> désigne votre dossier personnel (/home/student).', 'L\'invite devient <code>student@dockerlab:~/monsite$</code>.'),
+     S('Écrivez une page : <code>echo "&lt;h1&gt;Mon site&lt;/h1&gt;" &gt; index.html</code>.', 'Le fichier est créé <b>sur l\'hôte</b> ; ouvrez aussi l\'onglet « Fichiers de l\'hôte » ou tapez <code>nano index.html</code> pour le modifier à la main.', '<code>cat index.html</code> affiche « &lt;h1&gt;Mon site&lt;/h1&gt; ».')]),
+    P('Monter le dossier', [
+      'Le chemin de l\'hôte doit être <b>absolu</b> (commence par <code>/</code>). Le shell remplace <code>~</code> par <code>/home/student</code> avant de passer la commande à Docker.'],
+    [S('Lancez nginx avec le dossier monté en lecture seule : <code>docker run -d --name dev -p 8080:80 -v ~/monsite:/usr/share/nginx/html:ro nginx</code>.', 'Le dossier du site de nginx est remplacé par votre dossier, que nginx ne pourra pas modifier.', 'Un identifiant long. <code>curl localhost:8080</code> affiche <b>Mon site</b> et non « Welcome to nginx » : le montage a <i>masqué</i> la page de l\'image.', [['~/monsite:/usr/share/nginx/html', 'dossier de l\'hôte : dossier du conteneur'], [':ro', '« read-only » : lecture seule']]),
+     S('Modifiez la page sur l\'hôte : <code>echo "&lt;h1&gt;Mon site v2&lt;/h1&gt;" &gt; index.html</code>, puis <code>curl localhost:8080</code>.', 'Pour constater l\'intérêt du bind mount en développement : aucun redémarrage ni reconstruction.', 'curl affiche immédiatement « Mon site v2 ».'),
+     S('Tentez d\'écrire depuis le conteneur : <code>docker exec dev sh -c "echo x &gt; /usr/share/nginx/html/test.txt"</code>.', 'Pour vérifier que <code>:ro</code> protège le dossier.', 'Une erreur : « Read-only file system ».')]),
+  ],
+  recap: ['Bind mount = un dossier choisi de l\'hôte ; volume = stockage géré par Docker.', 'Un montage masque le contenu de l\'image à cet emplacement.', ':ro empêche le conteneur d\'écrire.', 'Le chemin de l\'hôte doit être absolu.'],
+  build(lab) { },
+  solve: solveWith(['mkdir -p /home/student/monsite', 'echo "<h1>Mon site</h1>" > /home/student/monsite/index.html', 'docker run -d --name dev -p 8080:80 -v /home/student/monsite:/usr/share/nginx/html:ro nginx', 'curl localhost:8080', 'docker exec dev sh -c "echo x > /usr/share/nginx/html/test.txt"']),
+  checks: [
+    { label: 'Un fichier index.html existe dans un dossier de votre répertoire personnel', run: c => /Mon site|<h1>/.test(c.hostFile('/home/student/monsite/index.html') || '') || c.lab.hostFs.list('/home/student').some(d => (c.hostFile('/home/student/' + d + '/index.html') || '').length > 0) },
+    { label: 'Le conteneur « dev » tourne avec un bind mount sur /usr/share/nginx/html', run: c => c.running('dev') && c.mountsBind('dev', '/usr/share/nginx/html') },
+    { label: 'Le montage est en lecture seule (:ro)', run: c => { const x = c.get('dev'); return !!x && x.mounts.some(m => m.type === 'bind' && m.destination === '/usr/share/nginx/html' && !m.rw); } },
+    { label: 'http://localhost:8080 sert votre page (et non « Welcome to nginx »)', run: c => { const b = c.http('http://localhost:8080').body; return b.length > 0 && !b.includes('Welcome to nginx'); } },
+  ],
+});
+
+/* ================================================= Réseau */
+SC.push({
+  id: 'reseau-dns', diff: 2, cat: 'Réseau', level: 'Intermédiaire', duration: '35 min', title: 'Réseaux Docker : faire dialoguer deux conteneurs par leur nom',
+  desc: 'Une API et un client tournent sur le réseau par défaut et ne peuvent pas se joindre par leur nom. Créez un réseau dédié pour activer le DNS interne de Docker.',
+  objectives: ['Décrire le réseau bridge par défaut et ses limites', 'Créer un réseau défini par l\'utilisateur', 'Utiliser la résolution de noms de Docker', 'Connecter un conteneur existant à un réseau'],
+  parts: [
+    P('Les réseaux Docker', [
+      'Docker crée pour chaque hôte un réseau virtuel par défaut appelé <b>bridge</b> (sous-réseau 172.17.0.0/16). Chaque conteneur y reçoit une adresse IP et peut joindre les autres <b>par leur adresse IP</b>. Problème : les adresses changent à chaque recréation, et sur ce réseau par défaut <b>il n\'y a pas de résolution de noms</b>.',
+      'La solution est de créer un <b>réseau bridge défini par l\'utilisateur</b> : Docker y fournit un <b>DNS interne</b> (le serveur 127.0.0.11 vu depuis les conteneurs) qui traduit le <b>nom du conteneur</b> en adresse IP. Un client joint alors l\'API par <code>http://api</code>, quelle que soit son adresse. De plus, les conteneurs de réseaux différents sont <b>isolés</b> les uns des autres.'],
+    [S('Observez : <code>docker ps</code> et <code>docker network ls</code>.', 'Pour connaître les réseaux disponibles et l\'état de départ.', 'Deux conteneurs, <b>api</b> (nginx) et <b>client</b> (alpine), et les réseaux par défaut bridge, host et none.'),
+     S('Entrez dans le client : <code>docker exec -it client sh</code>, puis tapez <code>wget -qO- http://api</code>, puis <code>exit</code>.', '<code>-it</code> ouvre un terminal interactif <i>dans</i> le conteneur : l\'invite change. wget joue le rôle d\'un client web ; on tente de joindre « api » par son nom.', 'Une erreur « wget: bad address \'api\' » : le nom n\'est pas résolu sur le réseau par défaut. <code>exit</code> ramène à l\'hôte.', [['-i', 'garde l\'entrée standard ouverte (interactif)'], ['-t', 'alloue un pseudo-terminal'], ['wget -qO-', 'télécharge et affiche la page (-q silencieux, -O- vers la sortie)']])]),
+    P('Créer le réseau et y connecter les conteneurs', [
+      '<code>docker network create NOM</code> crée un réseau bridge utilisateur. <code>docker network connect RÉSEAU CONTENEUR</code> y branche un conteneur <b>déjà existant</b> (un conteneur peut être sur plusieurs réseaux à la fois). On peut aussi directement lancer avec <code>docker run --network NOM</code>.'],
+    [S('Créez le réseau : <code>docker network create app-net</code>, puis regardez-le : <code>docker network inspect app-net</code>.', 'On crée le réseau qui portera le DNS interne.', 'Un identifiant, puis un JSON avec le sous-réseau (172.18.0.0/16), la passerelle et, pour l\'instant, aucun conteneur.'),
+     S('Branchez les deux conteneurs : <code>docker network connect app-net api</code> puis <code>docker network connect app-net client</code>.', 'Chaque conteneur reçoit une seconde adresse, sur app-net, et s\'enregistre dans le DNS interne sous son nom.', 'Aucun message : les commandes réussissent en silence.'),
+     S('Retestez depuis le client : <code>docker exec client wget -qO- http://api</code>.', 'Maintenant que les deux conteneurs partagent app-net, « api » est résolu par le DNS de Docker.', 'Le HTML de la page « Welcome to nginx! ».'),
+     S('Regardez les adresses : <code>docker inspect -f \'{{range $k,$v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}\' api</code>.', 'Pour voir qu\'un conteneur peut avoir une adresse par réseau.', '« bridge=172.17.0.2 app-net=172.18.0.2 » : deux adresses.', [['range $k,$v := …', 'boucle sur la liste des réseaux (clé k, valeur v)'], ['{{$v.IPAddress}}', 'l\'adresse IP du conteneur sur ce réseau']])]),
+  ],
+  recap: ['Le réseau bridge par défaut : IP oui, noms non.', 'Un réseau utilisateur ajoute le DNS interne : on joint un conteneur par son nom.', 'network connect branche un conteneur existant ; un conteneur peut avoir plusieurs réseaux.', 'Des réseaux différents isolent les conteneurs entre eux.'],
+  build(lab) { NS.execLines(lab, ['docker run -d --name api nginx', 'docker run -d --name client alpine sleep 3600']); },
+  solve: solveWith(['docker exec client wget -qO- http://api', 'docker network create app-net', 'docker network connect app-net api', 'docker network connect app-net client', 'docker exec client wget -qO- http://api']),
+  checks: [
+    { label: 'Le réseau « app-net » existe', run: c => c.network('app-net') },
+    { label: 'api est connecté à app-net', run: c => c.onNet('api', 'app-net') },
+    { label: 'client est connecté à app-net', run: c => c.onNet('client', 'app-net') },
+    { label: 'Depuis client, http://api répond (résolution par nom)', run: c => c.http('http://api', 'client').body.includes('Welcome to nginx') },
+  ],
+});
+
+SC.push({
+  id: 'isolation', diff: 3, cat: 'Réseau', level: 'Avancé', duration: '45 min', title: 'Isoler deux applications avec un conteneur passerelle',
+  desc: 'Deux applications (« compta » et « rh ») ne doivent pas se voir. Seul un conteneur « passerelle » peut parler aux deux.',
+  objectives: ['Créer deux réseaux isolés', 'Rattacher un conteneur à plusieurs réseaux', 'Vérifier l\'isolation avec wget et ping', 'Expliquer le DNS par réseau'],
+  parts: [
+    P('Isolation par les réseaux', [
+      'Deux conteneurs placés sur des réseaux Docker <b>différents</b> ne peuvent pas communiquer : ni par nom, ni par adresse IP. C\'est le moyen le plus simple de cloisonner des applications sur un même hôte (principe du <b>moindre privilège</b> réseau).',
+      'Quand un conteneur doit parler à deux mondes (un proxy, une passerelle d\'administration), on le rattache aux <b>deux réseaux</b> : il devient le seul pont. Le DNS interne est propre à chaque réseau : un nom n\'est résolu que pour les conteneurs du même réseau.'],
+    [S('Créez deux réseaux : <code>docker network create reseau-compta</code> et <code>docker network create reseau-rh</code>.', 'Un réseau par application, c\'est le cloisonnement de base.', 'Un identifiant par commande ; <code>docker network ls</code> liste les deux réseaux.'),
+     S('Lancez les deux applications : <code>docker run -d --name compta --network reseau-compta nginx</code> et <code>docker run -d --name rh --network reseau-rh nginx</code>.', 'L\'option <code>--network</code> choisit le réseau dès la création (au lieu du bridge par défaut).', 'Deux identifiants. Aucun des deux n\'est sur le réseau de l\'autre.', [['--network reseau-compta', 'attache le conteneur à ce réseau à la création']]),
+     S('Lancez le conteneur de test : <code>docker run -d --name passerelle --network reseau-compta alpine sleep 3600</code>.', '<code>sleep 3600</code> garde ce conteneur vivant pendant une heure pour qu\'on puisse y faire des tests.', 'Un identifiant ; <code>docker ps</code> montre trois conteneurs.')]),
+    P('Tester l\'isolation, puis ouvrir le pont', [
+      'On teste toujours une règle d\'isolation <b>dans les deux sens</b> : ce qui doit marcher marche, ce qui doit échouer échoue. Le test se fait depuis un conteneur du réseau concerné.'],
+    [S('Depuis <b>passerelle</b>, joignez <b>compta</b> : <code>docker exec passerelle wget -qO- http://compta</code>.', 'Même réseau : le DNS résout le nom.', 'Le HTML « Welcome to nginx! ».'),
+     S('Tentez ensuite <b>rh</b> : <code>docker exec passerelle wget -qO- -T 2 http://rh</code>.', 'Réseaux différents : le nom n\'existe pas pour passerelle. <code>-T 2</code> limite l\'attente à 2 s.', 'Une erreur « wget: bad address \'rh\' » : isolation effective.'),
+     S('Donnez à passerelle un second pied : <code>docker network connect reseau-rh passerelle</code>, puis retentez <code>docker exec passerelle wget -qO- http://rh</code>.', 'En rejoignant reseau-rh, passerelle devient visible des deux côtés et peut résoudre « rh ».', 'Cette fois le HTML de nginx s\'affiche.'),
+     S('Vérifiez le cloisonnement : <code>docker network inspect reseau-rh</code>.', 'On contrôle qui est branché sur quoi.', 'La section <i>Containers</i> ne liste que <b>rh</b> et <b>passerelle</b> : <b>compta</b> reste isolé de rh.')]),
+  ],
+  recap: ['Réseaux différents = conteneurs isolés (noms et IP).', 'Un conteneur sur deux réseaux est un pont ; à utiliser avec parcimonie.', 'Le DNS interne ne résout que les noms du même réseau.', 'On teste une isolation dans les deux sens.'],
+  build(lab) { },
+  solve: solveWith(['docker network create reseau-compta', 'docker network create reseau-rh', 'docker run -d --name compta --network reseau-compta nginx', 'docker run -d --name rh --network reseau-rh nginx', 'docker run -d --name passerelle --network reseau-compta alpine sleep 3600', 'docker network connect reseau-rh passerelle', 'docker exec passerelle wget -qO- http://compta', 'docker exec passerelle wget -qO- http://rh']),
+  checks: [
+    { label: 'Les deux réseaux existent', run: c => c.network('reseau-compta') && c.network('reseau-rh') },
+    { label: 'compta est uniquement sur reseau-compta, rh uniquement sur reseau-rh', run: c => c.onNet('compta', 'reseau-compta') && !c.get('compta').nets['reseau-rh'] && c.onNet('rh', 'reseau-rh') && !c.get('rh').nets['reseau-compta'] },
+    { label: 'passerelle est connectée aux deux réseaux', run: c => c.onNet('passerelle', 'reseau-compta') && c.onNet('passerelle', 'reseau-rh') },
+    { label: 'passerelle atteint compta et rh par leur nom', run: c => c.http('http://compta', 'passerelle').ok && c.http('http://rh', 'passerelle').ok },
+    { label: 'compta et rh ne peuvent pas se joindre', run: c => !c.reach('compta', 'rh') && !c.reach('rh', 'compta') },
+  ],
+});
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* tp_images.js — TP « Images et Dockerfile » : construire ses propres images. */
+(function (g) {
+'use strict';
+const NS = g.NS; const SC = NS.SCENARIOS; const P = NS.tpP, S = NS.tpS, solveWith = NS.solveWith;
+const W = (lab, p, d) => { lab.hostFs.writep(p, d); };
+
+/* ================================================= Dockerfile 1 */
+SC.push({
+  id: 'dockerfile-1', diff: 2, cat: 'Images', level: 'Intermédiaire', duration: '40 min', title: 'Votre première image : un Dockerfile pour un site web',
+  desc: 'Le dossier ~/projet-web contient une page HTML. Écrivez un Dockerfile qui l\'embarque dans une image nginx, construisez l\'image et lancez-la.',
+  objectives: ['Expliquer le rôle d\'un Dockerfile et d\'une image', 'Écrire FROM et COPY', 'Construire une image avec docker build -t', 'Lire l\'historique des couches'],
+  parts: [
+    P('Du code à l\'image', [
+      'Une <b>image</b> est un modèle en lecture seule, composé de <b>couches</b> empilées. Un <b>Dockerfile</b> est la « recette » : un fichier texte dont chaque <b>instruction</b> ajoute une couche. <code>docker build</code> lit cette recette et fabrique l\'image : c\'est reproductible, versionnable avec le code, et identique chez tout le monde.',
+      'Les deux instructions de base : <code>FROM image</code> choisit l\'image de départ (obligatoire, toujours en premier) ; <code>COPY source destination</code> copie des fichiers du <b>contexte de build</b> (le dossier que l\'on donne à docker build) dans l\'image.'],
+    [S('Allez dans le projet et regardez son contenu : <code>cd ~/projet-web &amp;&amp; ls</code>.', 'Le contexte de build est le dossier envoyé à Docker : on commence par voir ce qu\'il contient.', 'Un fichier <code>index.html</code>.'),
+     S('Créez le Dockerfile : <code>nano Dockerfile</code> puis saisissez les deux lignes <code>FROM nginx:alpine</code> et <code>COPY index.html /usr/share/nginx/html/index.html</code> (Ctrl+O, Entrée, Ctrl+X). Vérifiez avec <code>cat Dockerfile</code>.', 'Le fichier doit s\'appeler exactement <b>Dockerfile</b> (majuscule initiale) pour être trouvé automatiquement. On part de nginx:alpine, une version légère, et on remplace sa page d\'accueil par la nôtre.', '<code>cat</code> affiche vos deux lignes.', [['FROM nginx:alpine', 'image de départ, avec son « tag » (version) alpine'], ['COPY index.html /usr/share/…', 'copie du contexte vers le chemin absolu indiqué dans l\'image']])]),
+    P('Construire et lancer', [
+      '<code>docker build -t NOM:TAG CONTEXTE</code> construit l\'image. <code>-t</code> la <b>nomme</b> (sans nom, elle n\'a qu\'un identifiant). Le point <code>.</code> désigne le dossier courant comme contexte. Docker affiche une étape par instruction.'],
+    [S('Construisez : <code>docker build -t monsite:1.0 .</code>.', 'Transforme la recette en image locale nommée « monsite » version 1.0.', 'Une étape par instruction (FROM, COPY), puis « naming to docker.io/library/monsite:1.0 ».', [['-t monsite:1.0', 'nom et tag de l\'image produite'], ['.', 'contexte de build : le dossier courant']]),
+     S('Vérifiez : <code>docker images monsite</code>.', 'Pour constater que l\'image existe maintenant sur l\'hôte, comme une image téléchargée.', 'Une ligne « monsite 1.0 » avec sa taille.'),
+     S('Lancez-la : <code>docker run -d --name vitrine -p 8080:80 monsite:1.0</code>, puis <code>curl localhost:8080</code>.', 'Une image se lance comme n\'importe quelle autre ; elle contient maintenant votre page.', 'Le contenu de votre index.html (et non « Welcome to nginx »).')]),
+    P('Lire les couches', [
+      'Chaque instruction crée une <b>couche</b> ; les couches sont mises en <b>cache</b> et partagées entre images. <code>docker history</code> les affiche de la plus récente à la plus ancienne avec la commande qui les a créées.'],
+    [S('Affichez l\'historique : <code>docker history monsite:1.0</code>.', 'Pour voir que votre COPY est une couche au-dessus de celles de nginx.', 'La couche « COPY index.html … » en haut, de très petite taille, au-dessus des couches de nginx:alpine.')]),
+  ],
+  recap: ['Dockerfile = recette ; image = résultat ; conteneur = image en cours d\'exécution.', 'FROM choisit la base, COPY apporte des fichiers du contexte.', 'docker build -t nom:tag . construit ; docker history montre les couches.'],
+  build(lab) { W(lab, '/home/student/projet-web/index.html', '<h1>Formaxion Landes</h1><p>Mon premier site conteneurisé</p>\n'); },
+  solve: solveWith(['cd /home/student/projet-web', 'printf "FROM nginx:alpine\\nCOPY index.html /usr/share/nginx/html/index.html\\n" > Dockerfile', 'docker build -t monsite:1.0 .', 'docker run -d --name vitrine -p 8080:80 monsite:1.0', 'docker history monsite:1.0']),
+  checks: [
+    { label: 'Un Dockerfile existe dans ~/projet-web et commence par FROM', run: c => /^\s*FROM\s/m.test(c.hostFile('/home/student/projet-web/Dockerfile') || '') },
+    { label: 'L\'image monsite:1.0 existe', run: c => c.image('monsite:1.0') },
+    { label: 'Elle contient votre page', run: c => /Formaxion/.test(c.imgFile('monsite:1.0', '/usr/share/nginx/html/index.html') || '') },
+    { label: 'Un conteneur issu de monsite:1.0 tourne, port 8080 publié', run: c => c.lab.containers.some(x => x.running && x.imageRef.startsWith('monsite') && c.published(x.name, 8080, 80)) },
+    { label: 'http://localhost:8080 affiche votre page', run: c => /Formaxion/.test(c.http('http://localhost:8080').body) },
+  ],
+});
+
+/* ================================================= Dockerfile 2 */
+SC.push({
+  id: 'dockerfile-2', diff: 2, cat: 'Images', level: 'Intermédiaire', duration: '45 min', title: 'Dockerfile : RUN, ENV, WORKDIR, CMD',
+  desc: 'Construisez une petite image alpine qui installe curl, définit une variable, et exécute un script de salutation configurable.',
+  objectives: ['Utiliser RUN, ENV, WORKDIR, COPY, CMD', 'Distinguer l\'étape de construction de l\'étape d\'exécution', 'Surcharger une variable ou la commande au docker run'],
+  parts: [
+    P('Construction ou exécution ?', [
+      'Il faut distinguer deux moments. Au <b>build</b> : <code>RUN</code> exécute une commande dont le résultat est figé dans une couche (installer un paquet…), <code>ENV</code> fixe une variable d\'environnement par défaut, <code>WORKDIR</code> fixe le dossier de travail (et le crée). Au <b>run</b> : <code>CMD</code> définit la commande lancée au démarrage du conteneur — <i>elle ne s\'exécute pas pendant le build</i>.',
+      'Le <code>CMD</code> n\'est qu\'une valeur par défaut : tout ce qui suit le nom de l\'image dans <code>docker run</code> la remplace. Préférez la forme « exec » en JSON : <code>CMD ["sh", "salut.sh"]</code>.'],
+    [S('Allez dans le dossier : <code>cd ~/projet-salut &amp;&amp; cat salut.sh</code>.', 'Le script que l\'image devra exécuter est déjà fourni ; on le lit pour savoir quelle variable il utilise.', 'Un script qui affiche « Bonjour » suivi de la variable NOM.')]),
+    P('Écrire le Dockerfile', [
+      'L\'ordre compte : on met en haut ce qui change rarement (base, paquets) et en bas ce qui change souvent (vos fichiers) — nous verrons pourquoi dans le TP sur le cache.'],
+    [S('Créez le fichier Dockerfile (avec <code>nano Dockerfile</code>) contenant : <code>FROM alpine:3.20</code>, <code>RUN apk add --no-cache curl</code>, <code>ENV NOM=monde</code>, <code>WORKDIR /app</code>, <code>COPY salut.sh .</code>, <code>CMD ["sh", "salut.sh"]</code>.', 'Chaque ligne a un rôle : base, outil installé dans l\'image, valeur par défaut configurable, dossier de travail, fichier applicatif, commande de démarrage.', '<code>cat Dockerfile</code> affiche les six lignes.', [['apk add --no-cache', 'installe un paquet Alpine sans conserver le cache de l\'index (image plus légère)'], ['WORKDIR /app', 'les instructions suivantes (et le conteneur) démarrent dans /app'], ['COPY salut.sh .', 'le « . » est le WORKDIR : le script arrive dans /app']]),
+     S('Construisez : <code>docker build -t salut:1 .</code>.', 'RUN s\'exécute maintenant, dans un conteneur temporaire, pour installer curl.', 'Une étape par instruction, dont le RUN apk add.')]),
+    P('Exécuter et surcharger', [
+      'Une variable définie par <code>ENV</code> est visible dans le conteneur, mais on peut la <b>changer sans reconstruire</b> avec <code>-e</code> : c\'est le moyen standard de configurer une application.'],
+    [S('Lancez : <code>docker run --rm salut:1</code>.', '<code>--rm</code> supprime le conteneur à sa fin. Le CMD du Dockerfile est exécuté.', '« Bonjour monde ».'),
+     S('Changez la variable : <code>docker run --rm -e NOM=Formaxion salut:1</code>.', 'Pour constater que ENV n\'est qu\'une valeur par défaut, remplaçable à l\'exécution.', '« Bonjour Formaxion ».'),
+     S('Surchargez la commande : <code>docker run --rm salut:1 curl --version</code>.', 'Ce qui suit le nom de l\'image remplace le CMD ; cela prouve aussi que curl a bien été installé à la construction.', 'La version de curl, et non « Bonjour ».')]),
+  ],
+  recap: ['RUN, ENV, WORKDIR, COPY s\'exécutent au build ; CMD s\'exécute au run.', 'ENV donne une valeur par défaut, -e la remplace sans reconstruire.', 'Une commande après le nom de l\'image remplace CMD.'],
+  build(lab) { W(lab, '/home/student/projet-salut/salut.sh', 'echo "Bonjour $NOM"\n'); },
+  solve: solveWith(['cd /home/student/projet-salut', 'printf "FROM alpine:3.20\\nRUN apk add --no-cache curl\\nENV NOM=monde\\nWORKDIR /app\\nCOPY salut.sh .\\nCMD [\\"sh\\", \\"salut.sh\\"]\\n" > Dockerfile', 'docker build -t salut:1 .', 'docker run --rm salut:1', 'docker run --rm -e NOM=Formaxion salut:1']),
+  checks: [
+    { label: 'L\'image salut:1 existe', run: c => c.image('salut:1') },
+    { label: 'curl est installé dans l\'image (RUN apk add)', run: c => c.imgPkg('salut:1', 'curl') },
+    { label: 'La variable NOM=monde est définie dans l\'image (ENV)', run: c => { const i = c.img('salut:1'); return !!i && ((i.config && i.config.env) || []).some(e => e === 'NOM=monde'); } },
+    { label: 'Le script est dans /app (WORKDIR + COPY)', run: c => /NOM/.test(c.imgFile('salut:1', '/app/salut.sh') || '') },
+  ],
+});
+
+/* ================================================= Cache */
+SC.push({
+  id: 'dockerfile-cache', diff: 3, cat: 'Images', level: 'Avancé', duration: '45 min', title: 'Le cache de build : bien ordonner son Dockerfile',
+  desc: 'Une application Python est construite avec un Dockerfile mal ordonné : chaque modification du code réinstalle toutes les dépendances. Corrigez l\'ordre des instructions.',
+  objectives: ['Expliquer le fonctionnement du cache de couches', 'Repérer les étapes CACHED', 'Réordonner un Dockerfile pour en tirer parti'],
+  parts: [
+    P('Le cache de couches', [
+      'Docker garde chaque couche construite. Au build suivant, si l\'instruction <b>et les fichiers qu\'elle utilise</b> n\'ont pas changé, il réutilise la couche : l\'étape est marquée <code>CACHED</code> et ne coûte rien. Mais dès qu\'une couche est invalidée, <b>toutes les suivantes sont reconstruites</b>.',
+      'Conséquence : on place en premier ce qui change rarement (la liste des dépendances), puis installer, et en dernier le code source qui change à chaque commit. Ainsi, modifier le code ne réinstalle pas les dépendances.'],
+    [S('Allez dans le projet : <code>cd ~/projet-api &amp;&amp; ls &amp;&amp; cat Dockerfile</code>.', 'On commence par lire le Dockerfile existant pour repérer son défaut.', 'Un Dockerfile qui fait <code>COPY . .</code> <b>avant</b> <code>RUN pip install</code>.')]),
+    P('Constater le problème', [
+      'Le premier build ne peut rien réutiliser. C\'est le deuxième build, après une modification, qui révèle l\'efficacité du cache.'],
+    [S('Construisez : <code>docker build -t api:1 .</code>.', 'Premier build : toutes les étapes sont exécutées.', 'Aucune mention CACHED.'),
+     S('Modifiez le code : <code>echo "print(\'v2\')" &gt;&gt; app.py</code>, puis relancez <code>docker build -t api:2 .</code>.', 'Un simple changement de code devrait être rapide.', 'L\'étape <code>RUN pip install</code> est <b>refaite</b> (pas de CACHED) alors que les dépendances n\'ont pas changé : c\'est le défaut.', [])]),
+    P('Corriger l\'ordre', [
+      'Solution : copier d\'abord <b>uniquement</b> <code>requirements.txt</code>, installer, puis copier le reste du code.'],
+    [S('Remplacez le Dockerfile par : <code>FROM python:3.12-slim</code>, <code>WORKDIR /app</code>, <code>COPY requirements.txt .</code>, <code>RUN pip install -r requirements.txt</code>, <code>COPY . .</code>, <code>CMD ["python", "app.py"]</code>.', 'L\'installation ne dépend plus que de requirements.txt : tant qu\'il ne change pas, la couche reste en cache.', '<code>cat Dockerfile</code> montre le nouvel ordre.'),
+     S('Construisez, modifiez le code, reconstruisez : <code>docker build -t api:3 .</code>, <code>echo "print(\'v4\')" &gt;&gt; app.py</code>, <code>docker build -t api:4 .</code>.', 'Pour vérifier le gain.', 'Au dernier build, <code>RUN pip install</code> affiche <b>CACHED</b>.')]),
+  ],
+  recap: ['Une couche invalidée invalide toutes les suivantes.', 'Dépendances d\'abord, code ensuite.', 'CACHED dans la sortie de build = couche réutilisée.'],
+  build(lab) {
+    W(lab, '/home/student/projet-api/app.py', 'print("API démarrée")\n');
+    W(lab, '/home/student/projet-api/requirements.txt', 'flask==3.0.3\nrequests==2.32.3\n');
+    W(lab, '/home/student/projet-api/Dockerfile', 'FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt\nCMD ["python", "app.py"]\n');
+  },
+  solve: solveWith(['cd /home/student/projet-api', 'docker build -t api:1 .', 'echo "print(\'v2\')" >> app.py', 'docker build -t api:2 .', 'printf "FROM python:3.12-slim\\nWORKDIR /app\\nCOPY requirements.txt .\\nRUN pip install -r requirements.txt\\nCOPY . .\\nCMD [\\"python\\", \\"app.py\\"]\\n" > Dockerfile', 'docker build -t api:3 .', 'echo "print(\'v4\')" >> app.py', 'docker build -t api:4 .']),
+  checks: [
+    { label: 'Dans le Dockerfile, requirements.txt est copié avant d\'installer, et le code après', run: c => { const t = c.hostFile('/home/student/projet-api/Dockerfile') || ''; const a = t.search(/COPY\s+requirements\.txt/), b = t.search(/RUN\s+pip install/), d = t.search(/COPY\s+\.\s+\./); return a >= 0 && b > a && d > b; } },
+    { label: 'Le dernier build a réutilisé le cache pour pip install', run: c => { const b = c.lastBuild(); return !!b && b.ok && b.steps.some(s => /pip install/.test(s.label) && s.cached); } },
+    { label: 'Une image api existe', run: c => c.image('api:3') || c.image('api:4') },
+  ],
+});
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
@@ -3203,16 +3834,41 @@ function startScenario(sc, force) {
   const go = () => { try { mount(freshLab(sc), sc); } catch (e) { ui.toast('Erreur de construction du TP : ' + e.message, 'err'); console.error(e); return; } showRight('tp'); autosave(); ui.toast('TP chargé : ' + sc.title, 'ok'); };
   if (!force && lab.journal.length) ui.confirmBox('Charger un TP', 'Le laboratoire actuel sera remplacé. Continuer ?', go); else go();
 }
+function tpBody(sc) {
+  if (!sc.parts) return [h('h4', 'Déroulé'), h('ol', (sc.steps || []).map(s => h('li', { html: s })))];
+  let n = 0; const out = [];
+  sc.parts.forEach((p, pi) => {
+    out.push(h('div.tpart', h('h4.ptitle', 'Partie ' + (pi + 1) + ' — ' + p.title),
+      h('details.course', { open: true }, h('summary', '📘 Apport de cours'), (p.course || []).map(c => h('p', { html: c }))),
+      p.steps.map(st => { n++;
+        return h('div.tstep', h('div.sn', 'Étape ' + n), h('div.st', { html: st.t }),
+          st.why ? h('div.why', h('b', 'Pourquoi ? '), h('span', { html: st.why })) : null,
+          st.see ? h('div.see', h('b', 'Vous devriez voir : '), h('span', { html: st.see })) : null,
+          st.opts && st.opts.length ? h('details.opts', h('summary', 'Décryptage de la commande'), h('ul', st.opts.map(o => h('li', h('code', o[0]), ' : ', h('span', { html: o[1] }))))) : null);
+      })));
+  });
+  if (sc.recap && sc.recap.length) out.push(h('div.recap', h('h4', '🎯 À retenir'), h('ul', sc.recap.map(r => h('li', { html: r })))));
+  return out;
+}
 function renderTp() {
   const box = $('#tppane'); clear(box); const sc = currentTp;
-  if (!sc) { box.appendChild(h('div', h('h3', 'Aucun TP chargé'), h('p.muted', 'Utilisez « TP d\'exemple » en haut de l\'écran pour charger un sujet avec son état de départ, ses étapes, une correction et des vérifications automatiques.'))); return; }
+  if (!sc) { box.appendChild(h('div', h('h3', 'Aucun TP chargé'), h('p.muted', 'Utilisez « TP d\'exemple » en haut de l\'écran pour charger un sujet avec son cours, ses étapes expliquées, une correction et des vérifications automatiques.'))); return; }
   const res = h('div.tpres');
-  box.appendChild(h('div.tp', h('h3', sc.title), h('span.lvl', sc.level + ' · ' + sc.duration + ' · ' + diffText(sc.diff)), h('p', sc.desc),
-    h('h4', 'Objectifs'), h('ul', sc.objectives.map(o => h('li', o))), h('h4', 'Déroulé'), h('ol', sc.steps.map(s => h('li', { html: s }))),
+  const wide = h('button.small', { title: 'Élargir / réduire le volet', onclick: () => { const r = $('#right'); r.classList.toggle('wide'); try { localStorage.setItem('dockerlab.wide', r.classList.contains('wide') ? '1' : ''); } catch (e) { } } }, '↔ Élargir');
+  box.appendChild(h('div.tp', h('h3', sc.title), h('span.lvl', sc.level + ' · ' + sc.duration + ' · ' + diffText(sc.diff)), ' ', wide, h('p', sc.desc),
+    h('h4', 'Objectifs'), h('ul', sc.objectives.map(o => h('li', o))), ...tpBody(sc),
+    h('p.small.muted', '💡 Cliquez sur une commande du sujet pour l\'écrire dans le terminal (Maj+clic : l\'exécuter).'),
     h('div.btns', h('button.primary', { onclick: () => { res.textContent = 'Vérification en cours…'; setTimeout(() => runChecks(sc, res), 20); } }, '✔ Vérifier mon travail'),
       sc.solve ? h('button', { onclick: () => ui.confirmBox('Correction', 'Appliquer la correction ? Elle sera exécutée dans le terminal à votre place.', () => { sc.solve(lab, termApi()); ui.toast('Correction appliquée', 'ok'); }) }, 'Charger la correction') : null,
       h('button', { onclick: () => ui.confirmBox('Recommencer', 'Repartir de l\'état de départ du TP ? Votre travail sera perdu.', () => startScenario(sc, true)) }, 'Recommencer')), res));
 }
+try { if (localStorage.getItem('dockerlab.wide')) $('#right').classList.add('wide'); } catch (e) { }
+/* les commandes du sujet (balises <code>) s'insèrent dans le terminal d'un clic */
+$('#tppane').addEventListener('click', e => {
+  const c = e.target.closest && e.target.closest('code'); if (!c || !c.closest('.tp') || c.closest('.btns')) return;
+  const t = c.textContent.trim(); if (!/^[a-z~./]/.test(t) || window.getSelection().toString()) return;
+  const tm = termApi(); if (!tm) return; dockShow('term'); if (e.shiftKey) tm.runLines(t); else tm.insert(t);
+});
 function runChecks(sc, res) {
   clear(res); const c = NS.checker(lab); let okN = 0;
   sc.checks.forEach(k => { let ok = false; try { ok = !!k.run(c); } catch (e) { console.error(e); } if (ok) okN++; res.appendChild(h('div.check', { style: { borderColor: ok ? '#86efac' : '#fca5a5' } }, (ok ? '✔ ' : '✖ ') + k.label)); });

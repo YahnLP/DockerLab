@@ -94,7 +94,8 @@ function pruneImages(st, all) {
 const IMG = {
   ls: SUB.images, list: SUB.images, pull: SUB.pull, rm: SUB.rmi, remove: SUB.rmi, tag: SUB.tag, inspect: SUB.inspect,
   prune(args, st) { const { f } = parseFlags(args, ['force|f:b', 'all|a:b', 'filter:l'], false, 'image prune'); confirm(st, f, 'WARNING! This will remove ' + (f.all ? 'all images without at least one container associated to them.' : 'all dangling images.'), () => { const o = pruneImages(st, !!f.all); st.out((o.length ? 'Deleted Images:\n' + o.join('\n') + '\n\n' : '') + 'Total reclaimed space: 0B\n'); st.done(0); }); },
-  history(args, st) { const i = st.lab.findImage(args[0] || ''); if (!i) { dErr(st, new DockerError('No such image: ' + args[0])); return st.done(1); } st.out(U.table([['IMAGE', 'CREATED', 'CREATED BY', 'SIZE', 'COMMENT']].concat(i.layers.slice().reverse().map((l, k) => [k === 0 ? i.id.slice(0, 12) : '<missing>', U.humanDuration(st.lab.clock.now - i.created) + ' ago', '/bin/sh -c #(nop) layer ' + (i.layers.length - k), U.humanSize(l.size), '']))) ); st.done(0); },
+  history(args, st) { return SUB.history(args, st); },
+  build(args, st) { return SUB.build(args, st); },
 };
 SUB.image = (a, st) => sub(IMG, a[0], a.slice(1), st, 'image');
 const CON = { ls: SUB.ps, list: SUB.ps, ps: SUB.ps, rm: SUB.rm, remove: SUB.rm, stop: SUB.stop, start: SUB.start, restart: SUB.restart, kill: SUB.kill, logs: SUB.logs, exec: SUB.exec, inspect: SUB.inspect, run: SUB.run, create: SUB.create, top: SUB.top, port: SUB.port, stats: SUB.stats, rename: SUB.rename, pause: SUB.pause, unpause: SUB.unpause, cp: SUB.cp,
@@ -122,7 +123,7 @@ CMDS.docker = {
     if (!name || name === '--help' || name === '-h' || name === 'help') { st.out(HELP); return st.done(0); }
     if (rest.includes('--help') && SUB[name]) { st.out('\nUsage:  docker ' + name + ' [OPTIONS]\n\nRun \'docker --help\' for the list of options. (aide détaillée non simulée)\n'); return st.done(0); }
     const fn = SUB[name] || (name === 'ls' ? null : null);
-    if (name === 'build' || name === 'buildx' || name === 'builder') { st.err('[Docker Lab] « docker ' + name + ' » sera disponible dans une prochaine phase du simulateur (Dockerfile et build).\n'); return st.done(1); }
+    if (name === 'builder') { st.err('[Docker Lab] « docker ' + name + ' » sera disponible dans une prochaine phase du simulateur (Dockerfile et build).\n'); return st.done(1); }
     if (name === 'compose' || name === 'docker-compose') { st.err('[Docker Lab] « docker compose » sera disponible dans une prochaine phase du simulateur.\n'); return st.done(1); }
     if (name === 'login' || name === 'logout' || name === 'push' || name === 'search') { st.err('[Docker Lab] « docker ' + name + ' » n\'est pas simulé (le registre est fictif et en lecture seule).\n'); return st.done(1); }
     if (!fn) { st.err('docker: \'' + name + '\' is not a docker command.\nSee \'docker --help\'\n'); return st.done(1); }

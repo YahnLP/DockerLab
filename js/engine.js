@@ -251,7 +251,7 @@ class Lab {
       id, name, imageId: img.id, imageRef: o.image, spec: img.spec, config, created: this.clock.now,
       host: { ports, publishAll: !!o.publishAll, restart: o.restart || { name: 'no', max: 0 }, autoRemove: !!o.autoRemove, network: netName, binds: [] },
       state: { status: 'created', exitCode: 0, startedAt: null, finishedAt: null, error: '', pid: 0, restartCount: 0, oomKilled: false },
-      nets: {}, logs: [], mounts: [], fs: new VFS(VFS.clone(img.fs)), listen: [], timers: [], runToken: 0, subs: [], hits: 0, redis: null, procs: [], manualStop: false, pkgs: {},
+      nets: {}, logs: [], mounts: [], fs: new VFS(VFS.clone(img.fs)), listen: [], timers: [], runToken: 0, subs: [], hits: 0, redis: null, procs: [], manualStop: false, pkgs: Object.assign({}, img.pkgs || {}),
     });
     c.fs.home = img.os === 'scratch' ? '/' : '/root';
     this._mounts(c, img, o.mounts || []);
@@ -463,7 +463,7 @@ class Lab {
   }
   inspectImage(i) {
     const c = i.config; return {
-      Id: 'sha256:' + i.id, RepoTags: i.refs.map(r => r.repo + ':' + r.tag), RepoDigests: i.refs.map(r => r.repo + '@' + i.digest), Parent: '', Comment: '', Created: U.iso(this.epoch + i.created), DockerVersion: '27.3.1', Author: '', Architecture: 'amd64', Os: 'linux', Size: i.size, VirtualSize: i.size,
+      Id: 'sha256:' + i.id, RepoTags: i.refs.map(r => r.repo + ':' + r.tag), RepoDigests: i.local ? [] : i.refs.map(r => r.repo + '@' + i.digest), Parent: '', Comment: '', Created: U.iso(this.epoch + i.created), DockerVersion: '27.3.1', Author: '', Architecture: 'amd64', Os: 'linux', Size: i.size, VirtualSize: i.size,
       Config: { Hostname: '', User: c.user || '', ExposedPorts: (c.exposed || []).reduce((a, k) => { a[k] = {}; return a; }, {}), Env: c.env, Cmd: c.cmd, WorkingDir: c.workdir || '', Entrypoint: c.entrypoint.length ? c.entrypoint : null, Labels: null, StopSignal: c.stopSignal },
       GraphDriver: { Data: {}, Name: 'overlay2' }, RootFS: { Type: 'layers', Layers: i.layers.map(l => 'sha256:' + U.hexOf('full' + l.id, 64)) }, Metadata: { LastTagTime: '0001-01-01T00:00:00Z' },
     };

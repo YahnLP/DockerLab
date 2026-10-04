@@ -10,7 +10,8 @@ Créé par Yahn LE PRETTRE - Formaxion Landes.
 - Un **shell dans les conteneurs** (`-it`, `exec -it`) : commandes de base, pipes, redirections, `$(…)`, `apk`/`apt`, `curl`/`wget`/`ping`, `redis-cli`, `psql`.
 - Une **vue graphique** : hôte, réseaux (bandes), conteneurs (cartes), ports publiés, volumes. Un clic sur une carte propose des actions (la vraie commande est tapée dans le terminal).
 - Un **navigateur web** simulé pour tester les ports publiés, un **éditeur** (`nano`) pour l'hôte, un bouton **« 💡 Pourquoi ? »** qui explique la dernière commande.
-- **9 TP intégrés** avec sujet, vérification automatique, correction et bouton « Recommencer » (menu *TP d'exemple*).
+- **12 TP intégrés** mêlant apports de cours, consignes commentées (« Pourquoi ? », « Vous devriez voir », décryptage des options) et récapitulatif, avec vérification automatique, correction et bouton « Recommencer » (menu *TP d'exemple*).
+- **Dockerfile et `docker build`** simulés : cache de couches, multi-étapes, `.dockerignore`, `ARG`, `docker history`, `docker commit`.
 - Temps simulé (pause, vitesse, +1 min), sauvegarde automatique dans le navigateur, export/import JSON.
 
 ## Lancer
@@ -31,7 +32,9 @@ JavaScript « vanilla », espace de noms global `NS`, un fichier par responsabil
 | `js/minishell.js`, `procs.js` | shell et processus (hôte et conteneurs) |
 | `js/dockercli.js`, `dockercli2.js` | commande `docker` |
 | `js/state.js` | sauvegarde par **rejeu du journal** des commandes (moteur déterministe) |
-| `js/scenarios.js` | TP, vérificateur, couverture, limites |
+| `js/build.js` | Dockerfile et `docker build` |
+| `js/scenarios.js` | infrastructure des TP, vérificateur, couverture, limites |
+| `js/tp_base.js`, `js/tp_images.js` | les TP |
 | `js/ui-core.js`, `term.js`, `view.js`, `panels.js`, `main.js` | interface |
 
 ## Tests (Node, sans navigateur)
@@ -39,7 +42,8 @@ JavaScript « vanilla », espace de noms global `NS`, un fichier par responsabil
 ```
 node tests/t_docker.js   # moteur et CLI (83 vérifications)
 node tests/t_state.js    # sauvegarde / restauration
-node tests/t_sc.js       # rejoue les 9 TP : départ → correction → vérifications
+node tests/t_build.js    # docker build (14 vérifications)
+node tests/t_sc.js       # rejoue les 12 TP : départ → correction → vérifications
 ```
 
 ## Limites connues

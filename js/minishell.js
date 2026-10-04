@@ -168,14 +168,14 @@ class Shell {
   runCommand(name, args, st) {
     const ctx = this.ctx; const bn = name.includes('/') ? name.split('/').pop() : name;
     if (name.includes('/') && !ctx.fs.isFile(ctx.fs.norm(ctx.cwd, name)) && !(['/bin/sh', '/bin/bash', '/bin/ash', '/bin/ls', '/bin/cat', '/bin/echo', '/usr/bin/env', '/bin/sleep', '/bin/ping', '/usr/bin/curl'].includes(name))) { if (ctx.fs.isDir(ctx.fs.norm(ctx.cwd, name))) return st.fail((ctx.style === 'bb' ? 'sh: ' : 'bash: ') + name + ': Is a directory', 126); return st.fail((ctx.style === 'bb' ? 'sh: ' : 'bash: ') + name + ': ' + (ctx.style === 'bb' ? 'not found' : 'No such file or directory'), 127); }
-    if (ctx.kind === 'container' && name.startsWith('./')) return st.fail('sh: ' + name + ': Permission denied', 126);
+    if (ctx.kind === 'container' && /^\.?\.?\//.test(name) && !name.startsWith('/bin/') && !name.startsWith('/usr/')) { const fp = ctx.fs.norm(ctx.cwd, name); const nd = ctx.fs.get(fp); if (nd && nd.t === 'f' && nd.x) return CMDS.sh.f([fp], st); return st.fail((ctx.style === 'bb' ? 'sh: ' : 'bash: ') + name + ': Permission denied', 126); }
     const nm = (ctx.kind === 'host' || ctx.style === 'bb' || true) ? bn : name;
     if (!available(ctx, nm)) {
       if (ctx.kind === 'container' && ctx.container && NS.extraCmd && NS.extraCmd(this, nm, args, st)) return;
       const interactive = ctx.tty;
       return st.fail(ctx.style === 'bb' ? (st.ctx.inScript ? 'sh: ' : '/bin/sh: ') + nm + ': not found' : (ctx.kind === 'host' ? nm + ': command not found' : 'bash: ' + (st.ctx.inScript ? 'line 1: ' : '') + nm + ': command not found'), 127);
     }
-    const d = CMDS[nm];
+    const d = CMDS[nm]; st.cmdName = nm;
     try { d.f(args, st); } catch (e) { st.err((e && e.message ? e.message : String(e)) + '\n'); st.done(1); }
   }
 }
@@ -195,6 +195,20 @@ const abs = (st, p) => st.ctx.fs.norm(st.ctx.cwd, p);
 const defn = (names, f, extra) => { [].concat(names).forEach(n => { CMDS[n] = Object.assign({ f }, extra || {}); }); };
 const optsOf = (args, spec) => { const o = {}; const rest = []; let end = false; for (const a of args) { if (end || a === '-' || a[0] !== '-' || a.length < 2) { rest.push(a); continue; } if (a === '--') { end = true; continue; } if (a.startsWith('--')) { o[a.slice(2)] = true; continue; } for (const ch of a.slice(1)) o[ch] = true; } return { o, rest }; };
 
+defn('printf', (args, st) => {
+  if (!args.length) return st.fail('printf: usage: printf [-v var] format [arguments]', 2);
+  const un = t => t.replace(/\\([nt\\"']|0[0-7]{0,2}|x[0-9a-fA-F]{1,2})/g, (m, c) => c === 'n' ? '\n' : c === 't' ? '\t' : c === '\\' ? '\\' : c === '"' ? '"' : c === "'" ? "'" : c[0] === 'x' ? String.fromCharCode(parseInt(c.slice(1), 16)) : String.fromCharCode(parseInt(c, 8) || 0));
+  const fmt = args[0]; let rest = args.slice(1); let out = '';
+  do { let used = false; out += fmt.replace(/%(%|-?\d*s|d|i)/g, (m, c) => { if (c === '%') return '%'; used = true; const v = rest.length ? rest.shift() : ''; if (c === 'd' || c === 'i') return String(parseInt(v, 10) || 0); const w = parseInt(c, 10); const t = String(v); return isNaN(w) ? t : (c[0] === '-' ? t.padEnd(-w) : t.padStart(w)); }).replace(/\\([nt\\"']|0[0-7]{0,2}|x[0-9a-fA-F]{1,2})/g, (m, c) => un(m)); if (!used) break; } while (rest.length);
+  st.out(out); st.done(0);
+});
+defn(['chmod', 'chown', 'chgrp'], (args, st) => {
+  const nm = st.cmdName || 'chmod'; const rest = args.filter(a => !/^-[Rrfv]+$/.test(a)); if (rest.length < 2) return st.fail(nm + ": missing operand" + (rest.length ? " after '" + rest[0] + "'" : ''), 1);
+  let code = 0; rest.slice(1).forEach(a => { const p = abs(st, a); if (!st.ctx.fs.exists(p)) { st.err((st.ctx.style === 'bb' ? nm + ": " + a + ': No such file or directory' : nm + ": cannot access '" + a + "': No such file or directory") + '\n'); code = 1; } else if (nm === 'chmod' && !NS.canWrite(st.ctx, p) === false && (/^[0-7]*[1357]$|\+x|a\+x|u\+x/.test(rest[0]) ? (st.ctx.fs.get(p).x = true) : (/^[0-7]+$|-x/.test(rest[0]) ? (st.ctx.fs.get(p).x = false) : 0), false)) { /* mode appliqué */ } else if (!NS.canWrite(st.ctx, p)) { st.err(nm + ": changing permissions of '" + a + "': " + (st.ctx.fs.isRo && st.ctx.fs.isRo(p) ? 'Read-only file system' : 'Operation not permitted') + '\n'); code = 1; } });
+  st.done(code);
+});
+defn('ln', (args, st) => { const r = args.filter(a => a[0] !== '-'); if (r.length < 2) return st.fail('ln: missing file operand', 1); const t = abs(st, r[1]); if (st.ctx.fs.exists(t)) return st.fail("ln: failed to create symbolic link '" + r[1] + "': File exists", 1); st.ctx.fs.write(t, st.ctx.fs.read(abs(st, r[0])) || ''); st.done(0); });
+defn(['adduser', 'addgroup', 'useradd', 'groupadd'], (args, st) => { const nmA = args.filter(a => a[0] !== '-' && !/^\d+$/.test(a)).pop(); if (!nmA) return st.fail('Usage: adduser [OPTIONS] USER [GROUP]', 1); const f = st.ctx.fs; const pw = f.read('/etc/passwd') || ''; if (new RegExp('^' + nmA + ':', 'm').test(pw) && /user/.test(st.cmdName || 'adduser')) return st.fail((st.ctx.style === 'bb' ? 'adduser: user \'' + nmA + '\' in use' : "useradd: user '" + nmA + "' already exists"), st.ctx.style === 'bb' ? 1 : 9); if (!/group/.test(st.cmdName || '')) f.write('/etc/passwd', pw + nmA + ':x:' + (1000 + pw.split('\n').length) + ':' + (1000 + pw.split('\n').length) + '::/home/' + nmA + ':/bin/sh\n'); st.done(0); });
 defn('echo', (args, st) => { let nl = true, esc = false; while (args[0] && /^-[neE]+$/.test(args[0])) { if (args[0].includes('n')) nl = false; if (args[0].includes('e')) esc = true; args = args.slice(1); } let s = args.join(' '); if (esc) s = s.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\\\/g, '\\'); st.out(s + (nl ? '\n' : '')); st.done(0); });
 defn('true', (a, st) => st.done(0)); defn('false', (a, st) => st.done(1));
 defn('pwd', (a, st) => { st.out(st.ctx.cwd + '\n'); st.done(0); });
@@ -280,6 +294,7 @@ defn('curl', (args, st) => {
     else if (a[0] === '-' && a.length > 1 && a[1] !== '-') { for (const ch of a.slice(1)) { if (ch === 's') o.s = true; else if (ch === 'S') o.S = true; else if (ch === 'I') o.I = true; else if (ch === 'i') o.i = true; else if (ch === 'v') o.v = true; else if (ch === 'f') o.f = true; } }
     else if (a[0] !== '-') url = a;
   }
+  if (o.V || o.version || args.includes('--version')) { st.out('curl 8.5.0 (x86_64-pc-linux-gnu) libcurl/8.5.0 OpenSSL/3.0.13 zlib/1.3\nRelease-Date: 2023-12-06\nProtocols: dict file ftp ftps gopher gophers http https imap imaps ldap ldaps mqtt pop3 pop3s rtmp rtsp scp sftp smb smbs smtp smtps telnet tftp\nFeatures: alt-svc AsynchDNS HSTS HTTPS-proxy IPv6 Largefile NTLM SSL threadsafe TLS-SRP UnixSockets\n'); return st.done(0); }
   if (!url) return st.fail('curl: try \'curl --help\' or \'curl --manual\' for more information', 2);
   const method = o.I ? 'HEAD' : o.X;
   const r = st.lab.httpFetch(st.ctx.container, url, { method, ua: 'curl/8.5.0' });
