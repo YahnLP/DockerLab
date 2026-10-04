@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docker Lab — simulateur Docker pour apprendre dans le navigateur</title>
+<meta name="author" content="Yahn LE PRETTRE - Formaxion Landes">
+<meta name="description" content="Simulateur Docker 100 % navigateur : terminal, vue graphique, TP guidés. Aucune installation, aucun serveur.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%90%B3%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/dockerlab.css">
+</head>
+<body>
+<header id="top">
+  <div class="brand"><span class="logo" aria-hidden="true">🐳</span> Docker Lab <small>Bac Pro CIEL · BTS SIO SISR</small><span class="credit">Créé par Yahn LE PRETTRE - Formaxion Landes</span></div>
+  <div class="grp" role="group" aria-label="Fichier">
+    <button id="btn-new" title="Repartir d'un laboratoire vide">Nouveau</button>
+    <button id="btn-open" title="Ouvrir un fichier .json">Ouvrir</button>
+    <button id="btn-save" title="Enregistrer le laboratoire (.json) — clic droit pour changer de fichier">Enregistrer</button>
+    <button id="btn-scen" class="accent" title="Charger un TP">TP d'exemple ▾</button>
+  </div>
+  <div class="grp sim" role="group" aria-label="Temps">
+    <button id="btn-run" title="Pause / lecture du temps simulé">⏸ Pause</button>
+    <label class="spd" title="Vitesse du temps simulé">Vitesse <input id="speed" type="range" min="0" max="100" value="30" aria-label="Vitesse"><output id="speedv">×1</output></label>
+    <button id="btn-t1" title="Avancer le temps simulé d'une minute (redémarrages, journaux, expirations…)">+1 min</button>
+    <span id="simtime" class="mono" aria-live="off">t = 0 s</span>
+  </div>
+  <div class="grp" role="group" aria-label="Outils">
+    <button id="btn-why" class="accent2" title="Explique en détail ce que Docker vient de faire">💡 Pourquoi ?</button>
+    <button id="btn-browser" title="Ouvrir un navigateur web (depuis l'hôte)">🌐 Navigateur</button>
+    <button id="btn-fit" title="Réinitialiser la vue">⌖</button>
+    <button id="btn-help" title="Aide, limites et couverture">? Aide</button>
+  </div>
+</header>
+
+<div id="main">
+  <aside id="left" aria-label="Aide-mémoire">
+    <div id="palette"></div>
+  </aside>
+
+  <section id="center">
+    <div id="stage"><div id="viewwrap"></div><div id="toolhint" class="hint"></div></div>
+    <div id="dock">
+      <div id="dockgrip" title="Redimensionner"></div>
+      <div id="docktabs" role="tablist"><button class="dtab on" data-dock="term" role="tab">Terminal</button><button class="dtab" data-dock="res" role="tab">Ressources</button><button class="dtab" data-dock="files" role="tab">Fichiers de l'hôte</button><button class="dtab" data-dock="events" role="tab">Événements</button><button id="dockmax" title="Agrandir / restaurer le panneau">⤢</button><button id="dockmin" title="Réduire / afficher">▾</button></div>
+      <div id="dockbody"><div id="pane-term" class="pane"></div><div id="pane-res" class="pane" style="display:none"></div><div id="pane-files" class="pane" style="display:none"></div><div id="pane-events" class="pane" style="display:none"></div></div>
+    </div>
+  </section>
+
+  <aside id="right" aria-label="Propriétés">
+    <div id="rtabs" role="tablist"><button class="rtab on" data-r="insp" role="tab">Propriétés</button><button class="rtab" data-r="tp" role="tab">Sujet de TP</button></div>
+    <div id="inspector" class="rpane"></div>
+    <div id="tppane" class="rpane" style="display:none"></div>
+  </aside>
+</div>
+<div id="winlayer"></div>
+<input type="file" id="filein" accept=".json,application/json" style="display:none">
+
+<script src="js/util.js"></script>
+<script src="js/clock.js"></script>
+<script src="js/vfs.js"></script>
+<script src="js/registry.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/minishell.js"></script>
+<script src="js/procs.js"></script>
+<script src="js/dockercli.js"></script>
+<script src="js/dockercli2.js"></script>
+<script src="js/state.js"></script>
+<script src="js/ui-core.js"></script>
+<script src="js/term.js"></script>
+<script src="js/view.js"></script>
+<script src="js/panels.js"></script>
+<script src="js/scenarios.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+/* Docker Lab — compléments de style (la base vient de style.css, identique au Simulateur Réseau) */
+.accent2{background:#0ea5e9!important;border-color:#0ea5e9!important;color:#fff!important}
+#viewwrap{position:absolute;inset:0;overflow:auto;background:#f6f8fb}
+#view{display:block;min-width:100%}
+.band .bg{fill:#fff;stroke:#c6cfdb;stroke-width:1.2}.band.host .bg{fill:#f1f5f9}.band .bt{font-size:12px;font-weight:700;fill:#1e293b}.band .bs{font-size:10.5px;fill:#64748b;font-family:var(--mono)}
+.band .strip{fill:#1d4ed8}.band.user .strip{fill:#0f766e}.band.hostnet .strip{fill:#7c3aed}.band.none .strip{fill:#94a3b8}.band.vol .strip{fill:#b45309}.band.host .strip{fill:#334155}
+.ccard{cursor:pointer}.ccard .card{fill:#fff;stroke:#b6c2d2;stroke-width:1.4;filter:drop-shadow(0 1px 2px #0002)}.ccard:hover .card{stroke:#64748b}.ccard.sel .card{stroke:var(--brand);stroke-width:2.6}
+.ccard.dim{opacity:.6}.ccard .nm{font-size:12px;font-weight:700;fill:#1e293b;pointer-events:none}.ccard .im{font-size:10.5px;fill:#475569;font-family:var(--mono);pointer-events:none}.ccard .ip{font-size:10.5px;fill:#0f766e;font-family:var(--mono);pointer-events:none}.ccard .st{font-size:10px;fill:#64748b;pointer-events:none}.ccard .mt{font-size:10px;fill:#92400e;font-family:var(--mono);pointer-events:none}
+.pbadge{cursor:pointer}.pbadge rect{fill:#fef3c7;stroke:#f59e0b;stroke-width:1.2}.pbadge text{font-size:11px;font-family:var(--mono);fill:#78350f;pointer-events:none}.pbadge:hover rect{fill:#fde68a}
+.pline{stroke:#f59e0b;stroke-width:1.6;fill:none;stroke-dasharray:5 3;opacity:.85}
+.vcard rect{fill:#fff7ed;stroke:#fb923c;stroke-width:1.3}.vcard text{font-size:11px;font-family:var(--mono);fill:#7c2d12;pointer-events:none}.vcard{cursor:default}
+.empty-view{font-size:13px;fill:#64748b}
+/* terminal : onglets */
+.termwrap{display:flex;flex-direction:column;height:100%}.termtabs{display:flex;gap:2px;background:#f1f5f9;border-bottom:1px solid var(--line);padding:3px 6px 0;align-items:center}
+.ttab{border:1px solid transparent;border-bottom:0;border-radius:6px 6px 0 0;background:none;padding:2px 10px;font-size:12px;display:inline-flex;gap:6px;align-items:center}.ttab.on{background:#0b1220;color:#d1fae5}.ttab .x{opacity:.6;cursor:pointer}.ttab .x:hover{opacity:1}
+.termbody{flex:1;min-height:0;display:flex}.termbody>.term{flex:1}
+.term .hl{color:#fbbf24}
+/* ressources */
+.res{padding:8px 10px;overflow:auto;height:100%}.res h4{margin:8px 0 3px}.res .tbl td.mono{font-size:12px}
+.evline{font-family:var(--mono);font-size:12px;padding:0 8px;white-space:pre}
+/* éditeur de fichiers hôte */
+.files{display:flex;height:100%}.files .ftree{width:220px;overflow:auto;border-right:1px solid var(--line);background:#f8fafc;padding:4px 0;font-family:var(--mono);font-size:12px}.files .fitem{padding:1px 8px;cursor:pointer;white-space:nowrap}.files .fitem:hover{background:#eff6ff}.files .fitem.on{background:var(--brand);color:#fff}
+.files .fedit{flex:1;display:flex;flex-direction:column;min-width:0}.files textarea{flex:1;font-family:var(--mono);font-size:12.5px;border:0;border-radius:0;resize:none;padding:8px;white-space:pre;tab-size:2}.files .fbar{display:flex;gap:6px;padding:4px 6px;background:#f8fafc;border-bottom:1px solid var(--line);align-items:center}
+/* TP */
+.tp .tpres{margin-top:6px}.tp h4{margin:10px 0 3px}
+.tp .hint2{background:#ecfeff;border:1px solid #a5f3fc;border-radius:6px;padding:6px 8px;margin:6px 0;font-size:12px}
+.whybox{max-width:720px}.whybox ol{padding-left:18px}.whybox li{margin:5px 0}
+.cheat details{margin-bottom:4px}.cheat summary{font-size:12.5px}
+.cmd{display:block;width:100%;text-align:left;border:1px solid transparent;background:none;padding:3px 6px;border-radius:5px;font-family:var(--mono);font-size:11.5px;line-height:1.3;white-space:normal;word-break:break-word}
+.cmd:hover{background:#f1f5f9;border-color:var(--line)}.cmd small{display:block;font-family:system-ui,sans-serif;color:var(--muted);font-size:11px}
+.insp-btns button{font-size:12px}
+.pill{display:inline-block;border-radius:10px;padding:0 8px;font-size:11px;color:#fff}.pill.running{background:#16a34a}.pill.exited{background:#64748b}.pill.created{background:#d97706}.pill.paused{background:#2563eb}.pill.restarting{background:#dc2626}
+
+#dock{height:36vh;min-height:250px}
+.term{font-size:12.5px}
